@@ -29,4 +29,6 @@ Road Mask Merger, Floating Object Fixer and PatchForeman separately.
 - Window: in the conflict list the Make winner button now comes before the tick, rows have the name in bold with the numbers on a second line and
   alternating shading, and the arrow buttons of the winners and water lists are at the left.
 - `GROUNDSKEEPER_CONFIG` selects a different settings file.
+- New look, first part: the Groundskeeper mark as the app icon (a dark tile with the mountain in orange; strokes thickened for the small sizes) and as a
+  glowing header logo, a gradient title, and a strip of passes (Seams, Textures, Roads, Floating, Merge) that lights up while a run goes.
 - Tests: `TerrainEditCheck`, `TerrainPriorityCheck`, `PlacedChildDeduperCheck`, `CollisionCheck`.

@@ -3,6 +3,9 @@ using System.IO;
 using System.Text.Json;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Media;
+using System.Windows.Media.Animation;
+using Ellipse = System.Windows.Shapes.Ellipse;
 using Microsoft.Win32;
 
 namespace LandscapeHybrid.UI;
@@ -48,6 +51,94 @@ public partial class MainWindow : Window
         RebuildWaterList();
         RebuildWinnersList();
         Closing += (_, _) => Save();
+        BuildStageStrip();
+        StartHeaderAnimation();
+    }
+
+    // ---- header animation and the pass strip ----
+
+    // the stage names are the "== name ==" headings the runner writes to the log
+    static readonly (string Log, string Label)[] Stages =
+    {
+        ("Seams", "Seams"), ("Texture layers", "Textures"), ("Roads", "Roads"), ("Floating objects", "Floating"), ("Merge", "Merge"),
+    };
+    readonly Dictionary<string, (Border Chip, Ellipse Dot, TextBlock Text)> _stageUi = new();
+    string? _activeStage;
+
+    void StartHeaderAnimation()
+    {
+        // the logo's glow slowly breathes
+        var glow = new DoubleAnimation(8, 26, TimeSpan.FromSeconds(2.4)) { AutoReverse = true, RepeatBehavior = RepeatBehavior.Forever, EasingFunction = new SineEase() };
+        LogoGlow.BeginAnimation(System.Windows.Media.Effects.DropShadowEffect.BlurRadiusProperty, glow);
+    }
+
+    void BuildStageStrip()
+    {
+        StageStrip.Children.Clear();
+        foreach (var (log, label) in Stages)
+        {
+            var dot = new Ellipse { Width = 10, Height = 10, Fill = (Brush)FindResource("Muted"), Margin = new Thickness(0, 0, 7, 0), VerticalAlignment = VerticalAlignment.Center };
+            var text = new TextBlock { Text = label, Foreground = (Brush)FindResource("Muted"), FontWeight = FontWeights.SemiBold, Margin = new Thickness(0), VerticalAlignment = VerticalAlignment.Center };
+            var row = new StackPanel { Orientation = Orientation.Horizontal };
+            row.Children.Add(dot); row.Children.Add(text);
+            var chip = new Border
+            {
+                Child = row, CornerRadius = new CornerRadius(14), Padding = new Thickness(12, 5, 12, 5), Margin = new Thickness(4, 2, 0, 2),
+                BorderThickness = new Thickness(1), BorderBrush = new SolidColorBrush(Color.FromRgb(0x3A, 0x3F, 0x4C)),
+                Background = new SolidColorBrush(Color.FromArgb(40, 255, 255, 255)),
+            };
+            StageStrip.Children.Add(chip);
+            _stageUi[log] = (chip, dot, text);
+        }
+    }
+
+    enum StageState { Idle, Active, Done }
+
+    void SetStage(string logName, StageState state)
+    {
+        if (!_stageUi.TryGetValue(logName, out var ui)) return;
+        ui.Dot.BeginAnimation(OpacityProperty, null); // stop any pulse
+        ui.Dot.Opacity = 1;
+        switch (state)
+        {
+            case StageState.Idle:
+                ui.Dot.Fill = (Brush)FindResource("Muted"); ui.Text.Foreground = (Brush)FindResource("Muted");
+                ui.Chip.BorderBrush = new SolidColorBrush(Color.FromRgb(0x3A, 0x3F, 0x4C));
+                ui.Chip.Background = new SolidColorBrush(Color.FromArgb(40, 255, 255, 255));
+                break;
+            case StageState.Active:
+                var orange = Color.FromRgb(0xFF, 0x9A, 0x3D);
+                ui.Dot.Fill = new SolidColorBrush(orange); ui.Text.Foreground = Brushes.White;
+                ui.Chip.BorderBrush = new SolidColorBrush(orange);
+                ui.Chip.Background = new SolidColorBrush(Color.FromArgb(70, orange.R, orange.G, orange.B));
+                ui.Dot.BeginAnimation(OpacityProperty, new DoubleAnimation(0.25, 1, TimeSpan.FromMilliseconds(650)) { AutoReverse = true, RepeatBehavior = RepeatBehavior.Forever });
+                break;
+            case StageState.Done:
+                var green = Color.FromRgb(0x5F, 0xD0, 0x8C);
+                ui.Dot.Fill = new SolidColorBrush(green); ui.Text.Foreground = new SolidColorBrush(green);
+                ui.Chip.BorderBrush = new SolidColorBrush(Color.FromArgb(160, green.R, green.G, green.B));
+                ui.Chip.Background = new SolidColorBrush(Color.FromArgb(34, green.R, green.G, green.B));
+                break;
+        }
+    }
+
+    void ResetStages() { _activeStage = null; foreach (var (log, _) in Stages) SetStage(log, StageState.Idle); }
+
+    // fed from every log line: a heading such as "== Seams ==" moves the highlight along
+    void OnLogLine(string line)
+    {
+        if (!(line.StartsWith("== ") && line.EndsWith(" =="))) return;
+        var name = line[3..^3];
+        if (!_stageUi.ContainsKey(name)) return;
+        if (_activeStage is not null) SetStage(_activeStage, StageState.Done);
+        _activeStage = name;
+        SetStage(name, StageState.Active);
+    }
+
+    void FinishStages(bool ok)
+    {
+        if (_activeStage is not null) SetStage(_activeStage, ok ? StageState.Done : StageState.Idle);
+        _activeStage = null;
     }
 
     // ---- settings ----
@@ -417,12 +508,14 @@ public partial class MainWindow : Window
 
         SetBusy(true, dry ? "Previewing..." : "Generating...");
         LogBox.Clear();
+        ResetStages();
         Save();
         var sw = Stopwatch.StartNew();
-        void Log(string m) => Dispatcher.BeginInvoke(() => { LogBox.AppendText(m + Environment.NewLine); LogBox.ScrollToEnd(); });
+        void Log(string m) => Dispatcher.BeginInvoke(() => { OnLogLine(m); LogBox.AppendText(m + Environment.NewLine); LogBox.ScrollToEnd(); });
         try
         {
             var r = await Task.Run(() => HybridRunner.Run(s, Log));
+            Dispatcher.Invoke(() => FinishStages(true));
             Log("");
             foreach (var n in r.Notes) Log("note: " + n);
             Log($"Seam cells {r.SeamCells}, texture cells {r.TextureCells}, road cells {r.RoadCells}, floating refs {r.FloatingRefs}, merged cells {r.MergedCells}.");
@@ -432,6 +525,7 @@ public partial class MainWindow : Window
         }
         catch (Exception ex)
         {
+            Dispatcher.Invoke(() => FinishStages(false));
             Log("FAILED: " + ex.Message);
             SetBusy(false, "Failed - see the log.");
         }

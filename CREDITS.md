@@ -4,6 +4,8 @@
 
 Written by **Julio005 (GitHub: CageTV)**.
 
+The Groundskeeper mountain-and-seam mark (`assets/GroundKeeperICO.png`) is by Julio005; the app icon and header logo are recolored versions of it.
+
 ## The tools it grew from
 
 Groundskeeper merges the code and the ideas of five earlier tools by the same author. Each one still

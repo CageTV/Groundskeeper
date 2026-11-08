@@ -6,6 +6,7 @@
     <Nullable>enable</Nullable>
     <AssemblyName>GroundskeeperCli</AssemblyName>
     <CETCompat>false</CETCompat>
+    <ApplicationIcon>..\..\assets\Groundskeeper.ico</ApplicationIcon>
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="..\LandscapeHybrid.Core\LandscapeHybrid.Core.csproj" />
