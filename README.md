@@ -37,9 +37,10 @@ should win? The old tools answered it with a built-in trust list and then silent
 | **Roads** | Reconciles a road mod's terrain with the rest. Runs only if you name a road source plugin **and** give it the road images from [ACMOS Road Generator](https://www.nexusmods.com/skyrimspecialedition/mods/79205) (not included; see below). Untested on real data so far. |
 | **Floating objects** | Re-grounds floating or sunken placed references, checking each against the real Havok collision of nearby meshes, read in-process (no Python needed). Off by default, and it flags many references, so read the log. |
 | **Preferred road mod** | Pick one road mod that **edits the landscape** (reshapes terrain heights, like Northern Roads or Northern Vanaheimr Roads): its terrain wins wherever it conflicts, and its own patches rank above it. Road mods that only change textures do not count. |
-| **Terrain winners** | You set the order of conflicting mods; the highest wins. Written through the same safety checks as the seam pass. |
+| **Terrain winners** | You set the order of conflicting mods; the highest wins. A mod you add is placed where the load order has it (the one loaded last on top) and you can then move it with the arrows, or press Sort by load order to put them back. Written through the same safety checks as the seam pass. |
 | **Water mods** | Protects the water mods you tick (CS Water Mod, Water for ENB, RealisticWaterTwo, Simplicity of Sea and anything else with "water" in its name). Wherever another plugin overwrote one, its water is restored. The list is in priority order: first wins. |
 | **Water seam report** | Read-only (command line, `--water-report`). Lists neighbouring cells whose water height, type or presence disagrees where the shared edge is below the water, as a CSV with the winning plugin of each cell. Rivers and waterfalls legitimately step between cells, so these are candidates to check in game, not a fix. |
+| **Seam guard** | Runs on every cell Groundskeeper writes, just before the plugin is saved. If a pass left a cell with a height gap against its neighbour that was **not there before** (for example a road merged into one cell while the next cell, from another mod, kept its old edge), the cell's edge is pulled to the neighbour and the change fades out over four vertices, the heights are re-encoded and the affected normals recomputed. It never touches a cell Groundskeeper does not write, so a seam that already exists in another mod stays that mod's. On the author's list it took the seams introduced by a run from 18 to 0. |
 | **Merge** | Folds every pass into the single output plugin using the PatchForeman merge, including a guard that stops "Two records with the same FormKey" write errors. |
 
 Official content (the game masters, Creation Club plugins) is always trusted and never offered for
@@ -148,6 +149,7 @@ dotnet build src/LandscapeHybrid.Cli       # GroundskeeperCli.exe
 dotnet run --project tests/TerrainEditCheck
 dotnet run --project tests/TerrainPriorityCheck
 dotnet run --project tests/PlacedChildDeduperCheck
+dotnet run --project tests/EdgeGuardCheck
 dotnet run --project tests/CollisionCheck -- <reference.json>   # optional: compares against reference collision output; needs game meshes
 ```
 

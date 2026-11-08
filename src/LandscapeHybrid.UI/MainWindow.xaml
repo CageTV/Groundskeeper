@@ -176,10 +176,11 @@
                     <GroupBox Header="TERRAIN WINNERS - YOU DECIDE (FIRST = HIGHEST PRIORITY)">
                         <StackPanel>
                             <TextBlock Style="{StaticResource Hint}" TextWrapping="Wrap" Margin="0,0,0,6">
-                                Use "Make winner" on a mod in the list above to put it here. Where these mods conflict, the one highest in this list wins
-                                (instead of the one loaded last), and each beats every mod not listed. The usual safety checks still apply: cells with their own
+                                Use "Make winner" on a mod in the list above to put it here. A mod is added in its load-order place (the one loaded last on
+                                top), and you can then move it with the arrows. Where these mods conflict, the one highest in this list wins, and each beats every mod not listed. The usual safety checks still apply: cells with their own
                                 water or with placed objects that would move are skipped and reported. Empty = load order decides.
                             </TextBlock>
+                            <Button x:Name="SortWinnersButton" Content="Sort by load order" HorizontalAlignment="Left" Click="SortWinners_Click" ToolTip="Put the list back in load-order order (the mod loaded last on top)."/>
                             <StackPanel x:Name="WinnersList"/>
                         </StackPanel>
                     </GroupBox>

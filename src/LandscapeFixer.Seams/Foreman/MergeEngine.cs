@@ -619,6 +619,11 @@ public static class MergeEngine
         Directory.CreateDirectory(outputDirectory);
         var outputPath = Path.Combine(outputDirectory, outputPluginName);
 
+        // Do-no-harm: a cell this plugin writes must not open a seam against its neighbour that was not there before.
+        var seamGuard = SeamFinder.Core.EdgeGuard.Run(patchMod, linkCache, priorityIndex, outputPluginName, log);
+        foreach (var m in seamGuard.Messages.Take(25)) log(m);
+        if (seamGuard.Messages.Count > 25) log($"  ... and {seamGuard.Messages.Count - 25} more repaired edge(s).");
+
         // Guard against Mutagen's "Two records with the same FormKey were encountered" on write (Nexus bug report
         // on PatchForeman 0.2.10, 08841E:Skyrim.esm): drop extra copies of any placed reference, keeping the one in
         // the cell the load-order winner of that reference lives in.

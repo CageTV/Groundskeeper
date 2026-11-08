@@ -60,8 +60,9 @@ public sealed record RevertCandidate(string Plugin, int Cells, int MaxUnits, str
     int WaterCells = 0, string WaterRestoresTo = "");
 
 /// <param name="WaterModChoices">Plugins in the load order that look like water mods (known names, or "water" in the name).</param>
+/// <param name="LoadOrder">The plugins of the load order, lowest (loaded first) to highest (loaded last).</param>
 public sealed record TerrainPlan(IReadOnlyList<RevertCandidate> Candidates, int SkippedWater, int SkippedReference,
-    IReadOnlyList<string> WaterModChoices, IReadOnlyList<string> RoadModChoices);
+    IReadOnlyList<string> WaterModChoices, IReadOnlyList<string> RoadModChoices, IReadOnlyList<string> LoadOrder);
 
 /// <summary>
 /// One run: resolve the load order once (Mod Organizer 2, or the game's Data folder for Vortex and plain installs), run
@@ -235,7 +236,7 @@ public static class HybridRunner
         var roadChoices = knownRoad.Where(k => present.Contains(k, StringComparer.OrdinalIgnoreCase))
             .Concat(present.Where(n => n.Contains("road", StringComparison.OrdinalIgnoreCase) && !n.Contains(" - ") && !HybridRunner.IsOwnOutput(n, s.OutputPluginName)))
             .Distinct(StringComparer.OrdinalIgnoreCase).ToList();
-        return new TerrainPlan(list, skippedWater, skippedRef, waterChoices, roadChoices);
+        return new TerrainPlan(list, skippedWater, skippedRef, waterChoices, roadChoices, baseOrder.Select(p => p.FileName).ToList());
     }
 
     /// <summary>Read-only: lists neighbouring cells whose water disagrees where the shared edge is below the water plane (candidate

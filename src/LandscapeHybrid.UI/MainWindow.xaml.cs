@@ -35,6 +35,8 @@ public partial class MainWindow : Window
     string _preferredRoad = "";
     HashSet<string> _revert = new(StringComparer.OrdinalIgnoreCase);
     List<string> _winners = new();
+    // the load order from the last scan, lowest first; used to place new winners where the load order has them
+    List<string> _loadOrder = new();
     // water mods in priority order; the ticked ones are the protected set
     List<string> _waterOrder = new();
     HashSet<string> _waterTicked = new(StringComparer.OrdinalIgnoreCase);
@@ -358,6 +360,7 @@ public partial class MainWindow : Window
                 : $"{plan.Candidates.Count} mod(s) overwrite trusted terrain ({plan.Candidates.Sum(c => c.Cells)} cells) or water ({plan.Candidates.Sum(c => c.WaterCells)} cells); {plan.SkippedWater} more terrain cells skipped for water, {plan.SkippedReference} for placed references. Tick only the ones you want reverted.";
 
             // water mods found in the load order join the priority list (ticked ones keep their place at the top)
+            _loadOrder = plan.LoadOrder.ToList();
             RebuildPreferredRoad(plan.RoadModChoices);
             foreach (var w in plan.WaterModChoices)
                 if (!_waterOrder.Contains(w, StringComparer.OrdinalIgnoreCase)) _waterOrder.Add(w);
@@ -387,9 +390,31 @@ public partial class MainWindow : Window
 
     void AddWinner(string plugin)
     {
-        if (!_winners.Contains(plugin, StringComparer.OrdinalIgnoreCase)) _winners.Add(plugin);
+        if (!_winners.Contains(plugin, StringComparer.OrdinalIgnoreCase)) _winners.Insert(WinnerInsertIndex(plugin), plugin);
         _revert.Remove(plugin); // a winner is never reverted
         if (_conflictBoxes.TryGetValue(plugin, out var ticked)) ticked.IsChecked = false;
+        RebuildWinnersList();
+    }
+
+    int LoadIndex(string plugin) => _loadOrder.FindIndex(p => p.Equals(plugin, StringComparison.OrdinalIgnoreCase));
+
+    // A new winner goes where the load order puts it: above the first listed mod that loads EARLIER than it (the one loaded last is on top).
+    // Mods already moved by hand keep their places; the new one is simply slotted in by its own load position.
+    int WinnerInsertIndex(string plugin)
+    {
+        var mine = LoadIndex(plugin);
+        if (mine < 0) return _winners.Count;
+        for (var i = 0; i < _winners.Count; i++)
+        {
+            var other = LoadIndex(_winners[i]);
+            if (other >= 0 && other < mine) return i;
+        }
+        return _winners.Count;
+    }
+
+    void SortWinners_Click(object sender, RoutedEventArgs e)
+    {
+        _winners = _winners.OrderByDescending(LoadIndex).ToList(); // unknown mods (index -1) sink to the bottom
         RebuildWinnersList();
     }
 

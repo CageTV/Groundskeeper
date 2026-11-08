@@ -31,4 +31,7 @@ Road Mask Merger, Floating Object Fixer and PatchForeman separately.
 - `GROUNDSKEEPER_CONFIG` selects a different settings file.
 - New look, first part: the Groundskeeper mark as the app icon (a dark tile with the mountain in orange; strokes thickened for the small sizes) and as a
   glowing header logo, a gradient title, and a strip of passes (Seams, Textures, Roads, Floating, Merge) that lights up while a run goes.
-- Tests: `TerrainEditCheck`, `TerrainPriorityCheck`, `PlacedChildDeduperCheck`, `CollisionCheck`.
+- Seam guard: before saving, every written cell is checked against its neighbours; a gap the plugin itself introduced is repaired (edge pulled to
+  the neighbour, blended inward, heights re-encoded, normals recomputed), or the cell keeps its previous terrain if the repair would be too steep.
+- Terrain winners: a mod you add is placed in its load-order position and can then be moved; Sort by load order resets the list.
+- Tests: `TerrainEditCheck`, `TerrainPriorityCheck`, `PlacedChildDeduperCheck`, `CollisionCheck`, `EdgeGuardCheck`.
