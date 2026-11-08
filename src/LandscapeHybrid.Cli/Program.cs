@@ -10,6 +10,8 @@ using LandscapeHybrid;
 //            [--water-mod=<plugin>]... protect that water mod, first = highest priority (repeatable)
 //            [--winner=<plugin>]...    terrain winners in your order, first = highest (repeatable)
 //            [--water-report=<file.csv>] read-only: list neighbouring cells whose water disagrees (candidate water seams), then exit
+//            [--problem-map=<file.csv>] read-only: scan the load order for what may STILL be wrong (height/texture/water seams, floating objects), write a CSV, then exit
+//            [--with=<plugin path>]... preview that plugin at the end of the load order in --problem-map (repeatable)
 //            [--plan]                  only list the plugins that overwrite trusted terrain/water, then exit
 //            [--write]                 write the plugin (default is a dry run that writes nothing)
 
@@ -22,7 +24,8 @@ var mo2 = args.Length >= 3 && args[0] == "--mo2";
 var direct = args.Length >= 1 && args[0] == "--direct";
 var planOnly = args.Contains("--plan");
 var waterReport = Arg(args, "--water-report");
-if ((!mo2 && !direct) || (Arg(args, "--output") is null && !mo2 && !planOnly && waterReport is null))
+var problemMap = Arg(args, "--problem-map");
+if ((!mo2 && !direct) || (Arg(args, "--output") is null && !mo2 && !planOnly && waterReport is null && problemMap is null))
 {
     Console.WriteLine("Usage:");
     Console.WriteLine("  GroundskeeperCli --mo2 <instance> <profile> --output=<folder> [options]");
@@ -63,6 +66,15 @@ try
     {
         var rows = HybridRunner.WaterSeams(s, Console.WriteLine, waterReport);
         Console.WriteLine($"{rows.Count} possible water seams; {rows.Count(r => r.ExposedVertices >= 10)} with 10 or more of the 33 edge vertices exposed.");
+        return 0;
+    }
+    if (problemMap is not null)
+    {
+        var data = HybridRunner.ProblemMap(s, Console.WriteLine, Args(args, "--with"));
+        HybridRunner.WriteProblemCsv(data, problemMap);
+        foreach (var g in data.Marks.GroupBy(m => m.Kind)) Console.WriteLine($"{g.Key}: {g.Count()}");
+        foreach (var n in data.Notes) Console.WriteLine("note: " + n);
+        Console.WriteLine($"Wrote {problemMap} ({data.Marks.Count} marks, {data.Overview.Sum(kv => kv.Value.Count)} overview cells).");
         return 0;
     }
     if (planOnly)

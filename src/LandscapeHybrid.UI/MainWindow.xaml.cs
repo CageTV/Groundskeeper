@@ -165,6 +165,7 @@ public partial class MainWindow : Window
         SeamsCheck.IsChecked = s.Seams;
         TexturesCheck.IsChecked = s.TextureLayers;
         FloatingCheck.IsChecked = s.Floating;
+        OpenMapCheck.IsChecked = s.OpenProblemMapAfter;
         NeighborsCheck.IsChecked = s.MatchNeighborsToTrustedChain;
         NorthernCheck.IsChecked = s.TrustNorthernRoads;
         VanaheimrCheck.IsChecked = s.TrustVanaheimrRoads;
@@ -192,6 +193,7 @@ public partial class MainWindow : Window
         Seams = SeamsCheck.IsChecked == true,
         TextureLayers = TexturesCheck.IsChecked == true,
         Floating = FloatingCheck.IsChecked == true,
+        OpenProblemMapAfter = OpenMapCheck.IsChecked == true,
         MatchNeighborsToTrustedChain = NeighborsCheck.IsChecked == true,
         TrustNorthernRoads = NorthernCheck.IsChecked == true,
         TrustVanaheimrRoads = VanaheimrCheck.IsChecked == true,
@@ -544,6 +546,7 @@ public partial class MainWindow : Window
             Log("");
             foreach (var n in r.Notes) Log("note: " + n);
             Log($"Seam cells {r.SeamCells}, texture cells {r.TextureCells}, road cells {r.RoadCells}, floating refs {r.FloatingRefs}, merged cells {r.MergedCells}.");
+            if (!dry && s.OpenProblemMapAfter && r.OutputPaths.Count > 0) Dispatcher.Invoke(() => OpenMap(s, r.OutputPaths));
             SetBusy(false, dry ? $"Preview finished in {sw.Elapsed:mm\\:ss}. Nothing was written."
                 : r.OutputPaths.Count > 0 ? $"Wrote {string.Join(", ", r.OutputPaths.Select(Path.GetFileName))} in {sw.Elapsed:mm\\:ss}. Enable it after your other landscape mods."
                 : $"Finished in {sw.Elapsed:mm\\:ss}: no pass produced anything to write.");
@@ -556,10 +559,19 @@ public partial class MainWindow : Window
         }
     }
 
+    void Map_Click(object sender, RoutedEventArgs e)
+    {
+        var s = Collect(true);
+        if (Validate(s, false) is { } problem) { MessageBox.Show(this, problem, "Groundskeeper", MessageBoxButton.OK, MessageBoxImage.Information); return; }
+        OpenMap(s, null);
+    }
+
+    void OpenMap(HybridSettings s, IEnumerable<string>? extraPlugins) => new ProblemMapWindow(s, extraPlugins) { Owner = this }.Show();
+
     void SetBusy(bool busy, string status)
     {
         _busy = busy;
-        DryRunButton.IsEnabled = WriteButton.IsEnabled = ScanButton.IsEnabled = !busy;
+        DryRunButton.IsEnabled = WriteButton.IsEnabled = ScanButton.IsEnabled = MapButton.IsEnabled = !busy;
         Bar.Visibility = busy ? Visibility.Visible : Visibility.Hidden;
         Bar.IsIndeterminate = busy;
         StatusText.Text = status;

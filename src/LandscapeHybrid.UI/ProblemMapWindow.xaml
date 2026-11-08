@@ -1,0 +1,75 @@
+<Window x:Class="LandscapeHybrid.UI.ProblemMapWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:ui="clr-namespace:LandscapeHybrid.UI"
+        Title="Groundskeeper - problem map" Icon="Assets/Groundskeeper.ico" Height="780" Width="1280" MinHeight="520" MinWidth="900"
+        WindowStartupLocation="CenterOwner"
+        Background="{StaticResource Bg}" Foreground="{StaticResource Text}">
+    <Window.Resources>
+        <Style TargetType="TextBlock"><Setter Property="VerticalAlignment" Value="Center"/></Style>
+        <Style TargetType="CheckBox" BasedOn="{StaticResource {x:Type CheckBox}}"><Setter Property="Margin" Value="0,3,0,3"/></Style>
+        <Style TargetType="Button" BasedOn="{StaticResource {x:Type Button}}"><Setter Property="Padding" Value="10,4"/><Setter Property="Margin" Value="0,3,6,3"/></Style>
+    </Window.Resources>
+    <Grid>
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="*"/>
+            <ColumnDefinition Width="360"/>
+        </Grid.ColumnDefinitions>
+
+        <Grid Grid.Column="0">
+            <Grid.RowDefinitions><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+            <Border BorderBrush="{StaticResource Border}" BorderThickness="0,0,1,0">
+                <ui:MapView x:Name="Map"/>
+            </Border>
+            <Border x:Name="BusyOverlay" Background="#CC0E1014" Visibility="Visible">
+                <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center" Width="420">
+                    <TextBlock x:Name="BusyText" Text="Scanning the load order (about 20-40 seconds)..." FontSize="15" TextWrapping="Wrap" TextAlignment="Center"/>
+                    <ProgressBar IsIndeterminate="True" Height="6" Margin="0,12,0,0"/>
+                    <TextBlock Text="Nothing is written: this only reads your plugins." Style="{StaticResource Hint}" TextAlignment="Center" Margin="0,10,0,0"/>
+                </StackPanel>
+            </Border>
+            <Border Grid.Row="1" Background="{StaticResource Panel}" BorderBrush="{StaticResource Border}" BorderThickness="0,1,0,0" Padding="10,5">
+                <TextBlock x:Name="HoverText" Text="Wheel zooms, drag pans, click a coloured edge or dot for details." Foreground="{StaticResource Muted}"/>
+            </Border>
+        </Grid>
+
+        <Grid Grid.Column="1" Margin="12">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/>
+            </Grid.RowDefinitions>
+            <StackPanel>
+                <TextBlock Text="Possible remaining problems" FontSize="15" FontWeight="SemiBold" Margin="0,0,0,2"/>
+                <TextBlock x:Name="Summary" Style="{StaticResource Hint}" TextWrapping="Wrap" Margin="0,0,0,8"/>
+                <Grid Margin="0,0,0,6">
+                    <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                    <TextBlock Text="Worldspace" Margin="0,0,8,0"/>
+                    <ComboBox x:Name="WorldCombo" Grid.Column="1" SelectionChanged="Filter_Changed"/>
+                </Grid>
+            </StackPanel>
+            <StackPanel Grid.Row="1" Margin="0,0,0,6">
+                <CheckBox x:Name="HeightCheck" IsChecked="True" Checked="Filter_Changed" Unchecked="Filter_Changed"/>
+                <CheckBox x:Name="WaterCheck" IsChecked="True" Checked="Filter_Changed" Unchecked="Filter_Changed"/>
+                <CheckBox x:Name="FloatCheck" IsChecked="True" Checked="Filter_Changed" Unchecked="Filter_Changed"/>
+                <CheckBox x:Name="TexCheck" IsChecked="False" Checked="Filter_Changed" Unchecked="Filter_Changed"/>
+                <CheckBox x:Name="OfficialCheck" Content="Also show seams that come from Bethesda's own plugins" IsChecked="False" Checked="Filter_Changed" Unchecked="Filter_Changed" ToolTip="Both sides of the edge are Skyrim, DLC or Creation Club content: that is how the base game ships, not something a mod broke."/>
+                <Grid Margin="0,4,0,0">
+                    <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/><ColumnDefinition Width="46"/></Grid.ColumnDefinitions>
+                    <TextBlock Text="Minimum height step" Margin="0,0,8,0"/>
+                    <Slider x:Name="MinSlider" Grid.Column="1" Minimum="8" Maximum="400" Value="24" TickFrequency="8" IsSnapToTickEnabled="True" ValueChanged="Filter_Changed"/>
+                    <TextBlock x:Name="MinText" Grid.Column="2" Text="24" TextAlignment="Right"/>
+                </Grid>
+            </StackPanel>
+            <ListBox x:Name="ProblemList" Grid.Row="2" Background="{StaticResource Field}" BorderBrush="{StaticResource Border}" Foreground="{StaticResource Text}"
+                     SelectionChanged="ProblemList_Changed" HorizontalContentAlignment="Stretch" ScrollViewer.HorizontalScrollBarVisibility="Disabled"/>
+            <StackPanel Grid.Row="3" Margin="0,8,0,0">
+                <TextBlock x:Name="Details" TextWrapping="Wrap" Margin="0,0,0,6" MinHeight="64"/>
+                <WrapPanel>
+                    <Button x:Name="CopyButton" Content="Copy console command" Click="Copy_Click" IsEnabled="False" ToolTip="Paste it in the game console (~): it moves you to that cell."/>
+                    <Button Content="Export CSV..." Click="Export_Click"/>
+                    <Button x:Name="RescanButton" Content="Scan again" Click="Rescan_Click"/>
+                </WrapPanel>
+                <TextBlock Text="Marks are candidates, not proof: a river or waterfall can legitimately step between cells. Fix terrain in the Creation Kit, or in a patch of your own." Style="{StaticResource Hint}" TextWrapping="Wrap" Margin="0,6,0,0"/>
+            </StackPanel>
+        </Grid>
+    </Grid>
+</Window>

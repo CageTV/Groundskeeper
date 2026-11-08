@@ -249,6 +249,8 @@
                 <TextBlock x:Name="StatusText" Text="Ready." Style="{StaticResource Hint}"/>
             </StackPanel>
             <StackPanel Grid.Column="1" Orientation="Horizontal">
+                <CheckBox x:Name="OpenMapCheck" Content="Open the problem map after Generate" VerticalAlignment="Center" Margin="0,0,14,0" ToolTip="Scans the result for seams and floating objects that may still be wrong and shows them on a map."/>
+                <Button x:Name="MapButton" Content="Problem map..." Click="Map_Click" Margin="0,3,8,3" ToolTip="Read-only scan of your current load order for what may still be broken, drawn on a map."/>
                 <Button x:Name="DryRunButton" Content="Preview (no files written)" Click="Run_Click" Tag="dry" Margin="0,3,8,3"/>
                 <Button x:Name="WriteButton" Content="Generate" Style="{StaticResource PrimaryButton}" Click="Run_Click" Tag="write" Margin="0,3,8,3"/>
                 <Button x:Name="OpenButton" Content="Open output folder" Click="OpenOutput_Click" Margin="0,3,0,3"/>

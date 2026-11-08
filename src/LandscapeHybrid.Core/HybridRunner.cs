@@ -48,6 +48,9 @@ public sealed class HybridSettings
     public List<string> WaterMods { get; set; } = new();
     /// <summary>True = run every pass and the merge but write nothing into the output folder.</summary>
     public bool DryRun { get; set; }
+
+    /// <summary>After Generate, open the problem map on the result (the map is also always available from its own button).</summary>
+    public bool OpenProblemMapAfter { get; set; }
 }
 
 public sealed record HybridResult(
@@ -75,7 +78,7 @@ public sealed record TerrainPlan(IReadOnlyList<RevertCandidate> Candidates, int 
 /// Trust is explicit: <see cref="Plan"/> lists every plugin that overwrites trusted terrain or water; a run keeps
 /// all of them unless the user listed them in <see cref="HybridSettings.RevertPlugins"/>.
 /// </summary>
-public static class HybridRunner
+public static partial class HybridRunner
 {
     public static readonly string[] PassPluginNames =
         { "LandscapeSeamFixes.esp", "LandscapeTextureFixes.esp", "RoadMaskMerge.esp", "FloatingObjectFixes.esp", "LandscapeSeamPlan.esp" };
@@ -109,9 +112,9 @@ public static class HybridRunner
     static readonly Regex SkipSummary = new(
         @"skipped (?<w>\d+) with their own water plane; skipped (?<r>\d+) where a placed reference", RegexOptions.Compiled);
 
-    sealed record Env(List<Mo2Resolver.ResolvedPlugin> All, List<Mo2Resolver.ResolvedPlugin> BaseOrder, Func<string, string?> Asset);
+    internal sealed record Env(List<Mo2Resolver.ResolvedPlugin> All, List<Mo2Resolver.ResolvedPlugin> BaseOrder, Func<string, string?> Asset);
 
-    static Env Resolve(HybridSettings s, Action<string> log)
+    internal static Env Resolve(HybridSettings s, Action<string> log)
     {
         List<Mo2Resolver.ResolvedPlugin> all;
         Func<string, string?> asset;
