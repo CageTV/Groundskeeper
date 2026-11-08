@@ -233,8 +233,11 @@ public static class SeamFixer
             // authoritative data, nothing to restore. A priority-override
             // plugin counts as trusted here too (it's just ranked ABOVE
             // Northern Roads/URF instead of below, in ResolveTrustedOnlyLandscape).
-            if (TrustResolver.IsBaseGamePlugin(ownerModKey.FileName, trustNorthernRoads, customTrustedPlugins)
-                || TrustResolver.MatchesCustomTrust(ownerModKey.FileName, priorityOverNorthernRoadsPlugins)) continue;
+            // With a user-ORDERED winner list (2+ entries) a priority plugin that currently wins can still be outranked by
+            // a higher entry, so it is not skipped here; the heights comparison below skips it when nothing differs.
+            var ownerIsPriority = TrustResolver.MatchesCustomTrust(ownerModKey.FileName, priorityOverNorthernRoadsPlugins);
+            if ((TrustResolver.IsBaseGamePlugin(ownerModKey.FileName, trustNorthernRoads, customTrustedPlugins) || ownerIsPriority)
+                && !(ownerIsPriority && priorityOverNorthernRoadsPlugins.Count > 1)) continue;
 
             // Is there a trusted plugin's own repair for this exact cell
             // that the actual winner has silently discarded? "Discarded"
@@ -568,9 +571,18 @@ public static class SeamFixer
             {
                 vanilla = ctx.Record.Landscape;
             }
-            if (isPriorityOverride && idx > priorityOverrideIndex)
+            // Priority plugins rank by their position in the user's list (first = highest), not by load order.
+            var priorityRank = -1;
+            if (isPriorityOverride)
             {
-                priorityOverrideIndex = idx;
+                var pos = 0;
+                for (; pos < priorityOverNorthernRoadsPlugins.Count; pos++)
+                    if (TrustResolver.MatchesCustomTrust(fileName, [priorityOverNorthernRoadsPlugins[pos]])) break;
+                priorityRank = priorityOverNorthernRoadsPlugins.Count - pos;
+            }
+            if (isPriorityOverride && priorityRank > priorityOverrideIndex)
+            {
+                priorityOverrideIndex = priorityRank;
                 priorityOverride = ctx.Record.Landscape;
                 priorityOverrideModKey = ctx.ModKey;
             }

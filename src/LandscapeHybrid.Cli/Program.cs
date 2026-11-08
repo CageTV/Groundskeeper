@@ -7,6 +7,7 @@ using LandscapeHybrid;
 //            [--trust-northern-roads] [--match-neighbors]
 //            [--revert=<plugin>]...   revert that plugin's terrain/water (repeatable; default: nothing is reverted)
 //            [--water-mod=<plugin>]... protect that water mod, first = highest priority (repeatable)
+//            [--winner=<plugin>]...    terrain winners in your order, first = highest (repeatable)
 //            [--plan]                  only list the plugins that overwrite trusted terrain/water, then exit
 //            [--write]                 write the plugin (default is a dry run that writes nothing)
 
@@ -47,6 +48,7 @@ var s = new HybridSettings
     MatchNeighborsToTrustedChain = args.Contains("--match-neighbors"),
     RevertPlugins = Args(args, "--revert"),
     WaterMods = Args(args, "--water-mod"),
+    TerrainWinners = Args(args, "--winner"),
     DryRun = !args.Contains("--write"),
 };
 

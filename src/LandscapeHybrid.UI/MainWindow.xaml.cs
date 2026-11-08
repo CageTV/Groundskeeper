@@ -16,6 +16,7 @@ public partial class MainWindow : Window
     bool _busy;
     string? _savedProfile;
     HashSet<string> _revert = new(StringComparer.OrdinalIgnoreCase);
+    List<string> _winners = new();
     // water mods in priority order; the ticked ones are the protected set
     List<string> _waterOrder = new();
     HashSet<string> _waterTicked = new(StringComparer.OrdinalIgnoreCase);
@@ -28,6 +29,7 @@ public partial class MainWindow : Window
         ApplyMode();
         RefreshProfiles(null);
         RebuildWaterList();
+        RebuildWinnersList();
         Closing += (_, _) => Save();
     }
 
@@ -59,6 +61,7 @@ public partial class MainWindow : Window
         RoadWorldspaceBox.Text = string.IsNullOrWhiteSpace(s.RoadWorldspace) ? "Tamriel" : s.RoadWorldspace;
         _savedProfile = s.Mo2Profile;
         _revert = new HashSet<string>(s.RevertPlugins, StringComparer.OrdinalIgnoreCase);
+        _winners = s.TerrainWinners.ToList();
         _waterOrder = s.WaterMods.ToList();
         _waterTicked = new HashSet<string>(s.WaterMods, StringComparer.OrdinalIgnoreCase);
         if (_revert.Count > 0) ScanSummary.Text = $"{_revert.Count} mod(s) ticked for revert from last time. Scan again to see current conflicts.";
@@ -81,6 +84,7 @@ public partial class MainWindow : Window
         RoadMaskFolder = RoadMasksBox.Text.Trim(),
         RoadWorldspace = RoadWorldspaceBox.Text.Trim(),
         RevertPlugins = _revert.OrderBy(x => x).ToList(),
+        TerrainWinners = _winners.ToList(),
         WaterMods = _waterOrder.Where(w => _waterTicked.Contains(w)).ToList(),
         DryRun = dryRun,
     };
@@ -183,12 +187,18 @@ public partial class MainWindow : Window
                 {
                     Tag = c.Plugin,
                     IsChecked = _revert.Contains(c.Plugin),
-                    Content = $"{c.Plugin}  -  {string.Join("; ", what)}",
+                    Content = new TextBlock { Text = $"{c.Plugin}  -  {string.Join("; ", what)}", Margin = new Thickness(0), TextWrapping = TextWrapping.Wrap }, // TextBlock: a plain string would eat "_" as an access key
                     ToolTip = (c.SampleCells.Count > 0 ? "Example cells: " + string.Join(", ", c.SampleCells) + ". " : "")
                               + "Tick to REVERT this mod's terrain and water in these cells; untick to keep it.",
                 };
                 cb.Checked += Revert_Changed; cb.Unchecked += Revert_Changed;
-                ConflictList.Children.Add(cb);
+                var win = new Button { Content = "Make winner", Padding = new Thickness(8, 1, 8, 1), Margin = new Thickness(8, 0, 0, 0), Tag = c.Plugin,
+                    ToolTip = "Put this mod in the winners list below: it will win where it conflicts, ahead of mods loaded after it." };
+                win.Click += (_, _) => AddWinner(c.Plugin);
+                var row = new DockPanel { LastChildFill = true };
+                DockPanel.SetDock(win, Dock.Right);
+                row.Children.Add(win); row.Children.Add(cb);
+                ConflictList.Children.Add(row);
             }
             // a saved tick for a mod that no longer conflicts is dropped
             _revert.RemoveWhere(r => plan.Candidates.All(c => !c.Plugin.Equals(r, StringComparison.OrdinalIgnoreCase)));
@@ -207,6 +217,48 @@ public partial class MainWindow : Window
             Log("FAILED: " + ex.Message);
             SetBusy(false, "Scan failed - see the log.");
         }
+    }
+
+    void AddWinner(string plugin)
+    {
+        if (!_winners.Contains(plugin, StringComparer.OrdinalIgnoreCase)) _winners.Add(plugin);
+        _revert.Remove(plugin); // a winner is never reverted
+        foreach (var row in ConflictList.Children.OfType<DockPanel>())
+            if (row.Children.OfType<CheckBox>().FirstOrDefault() is { Tag: string t } cb && t.Equals(plugin, StringComparison.OrdinalIgnoreCase)) cb.IsChecked = false;
+        RebuildWinnersList();
+    }
+
+    void RebuildWinnersList()
+    {
+        WinnersList.Children.Clear();
+        if (_winners.Count == 0)
+        {
+            WinnersList.Children.Add(new TextBlock { Text = "No winners chosen: load order decides.", Style = (Style)FindResource("Hint") });
+            return;
+        }
+        for (var i = 0; i < _winners.Count; i++)
+        {
+            var name = _winners[i];
+            var row = new DockPanel { LastChildFill = true };
+            var remove = new Button { Content = "✕", Padding = new Thickness(6, 1, 6, 1), Margin = new Thickness(6, 0, 0, 0), ToolTip = "Remove from the winners list" };
+            var down = new Button { Content = "▼", Padding = new Thickness(6, 1, 6, 1), Margin = new Thickness(2, 0, 0, 0), ToolTip = "Lower priority", IsEnabled = i < _winners.Count - 1 };
+            var up = new Button { Content = "▲", Padding = new Thickness(6, 1, 6, 1), Margin = new Thickness(6, 0, 0, 0), ToolTip = "Higher priority", IsEnabled = i > 0 };
+            up.Click += (_, _) => MoveWinner(name, -1);
+            down.Click += (_, _) => MoveWinner(name, +1);
+            remove.Click += (_, _) => { _winners.RemoveAll(w => w.Equals(name, StringComparison.OrdinalIgnoreCase)); RebuildWinnersList(); };
+            foreach (var b in new[] { remove, down, up }) { DockPanel.SetDock(b, Dock.Right); row.Children.Add(b); }
+            row.Children.Add(new TextBlock { Text = $"{i + 1}.  {name}", VerticalAlignment = VerticalAlignment.Center });
+            WinnersList.Children.Add(row);
+        }
+    }
+
+    void MoveWinner(string name, int delta)
+    {
+        var i = _winners.FindIndex(w => w.Equals(name, StringComparison.OrdinalIgnoreCase));
+        var j = i + delta;
+        if (i < 0 || j < 0 || j >= _winners.Count) return;
+        (_winners[i], _winners[j]) = (_winners[j], _winners[i]);
+        RebuildWinnersList();
     }
 
     void Revert_Changed(object sender, RoutedEventArgs e)
@@ -234,7 +286,7 @@ public partial class MainWindow : Window
             down.Click += (_, _) => MoveWater(name, +1);
             DockPanel.SetDock(down, Dock.Right); DockPanel.SetDock(up, Dock.Right);
             row.Children.Add(down); row.Children.Add(up);
-            var cb = new CheckBox { Content = $"{i + 1}.  {name}", IsChecked = _waterTicked.Contains(name), Tag = name };
+            var cb = new CheckBox { Content = new TextBlock { Text = $"{i + 1}.  {name}", Margin = new Thickness(0) }, IsChecked = _waterTicked.Contains(name), Tag = name };
             cb.Checked += Water_Changed; cb.Unchecked += Water_Changed;
             row.Children.Add(cb);
             WaterList.Children.Add(row);

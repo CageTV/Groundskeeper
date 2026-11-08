@@ -125,6 +125,17 @@
                         </StackPanel>
                     </GroupBox>
 
+                    <GroupBox Header="TERRAIN WINNERS - YOU DECIDE (FIRST = HIGHEST PRIORITY)">
+                        <StackPanel>
+                            <TextBlock Style="{StaticResource Hint}" TextWrapping="Wrap" Margin="0,0,0,6">
+                                Use "Make winner" on a mod in the list above to put it here. Where these mods conflict, the one highest in this list wins
+                                (instead of the one loaded last), and each beats every mod not listed. The usual safety checks still apply: cells with their own
+                                water or with placed objects that would move are skipped and reported. Empty = load order decides.
+                            </TextBlock>
+                            <StackPanel x:Name="WinnersList"/>
+                        </StackPanel>
+                    </GroupBox>
+
                     <GroupBox Header="WATER MODS TO PROTECT (FIRST = HIGHEST PRIORITY)">
                         <StackPanel>
                             <TextBlock Style="{StaticResource Hint}" TextWrapping="Wrap" Margin="0,0,0,6">
