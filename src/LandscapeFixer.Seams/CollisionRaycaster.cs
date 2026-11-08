@@ -138,9 +138,17 @@ public static class CollisionRaycaster
     // are always zero.
     public static float? HighestSurfaceZ(IEnumerable<Tri3> worldTriangles, float x, float y)
     {
+        var list = worldTriangles as IReadOnlyList<Tri3> ?? worldTriangles.ToList();
         float? best = null;
-        foreach (var t in worldTriangles)
+        for (int i = 0; i < list.Count; i++)
         {
+            var t = list[i];
+            // Cheap reject: a point clearly outside the triangle's XY box cannot pass the barycentric test below.
+            // The margin covers that test's -1e-4 edge tolerance (<= 1e-4 x the triangle's altitude <= its XY diagonal), so results are unchanged.
+            float minX = MathF.Min(t.A.X, MathF.Min(t.B.X, t.C.X)), maxX = MathF.Max(t.A.X, MathF.Max(t.B.X, t.C.X));
+            float minY = MathF.Min(t.A.Y, MathF.Min(t.B.Y, t.C.Y)), maxY = MathF.Max(t.A.Y, MathF.Max(t.B.Y, t.C.Y));
+            float m = 2e-4f * ((maxX - minX) + (maxY - minY)) + 1e-3f;
+            if (x < minX - m || x > maxX + m || y < minY - m || y > maxY + m) continue;
             var z = TryInterpolateZ(t, x, y);
             if (z.HasValue && (best is null || z.Value > best.Value))
                 best = z.Value;

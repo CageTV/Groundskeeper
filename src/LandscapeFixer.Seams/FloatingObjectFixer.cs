@@ -361,7 +361,9 @@ public static class FloatingObjectFixer
         bool forceCorrectCappedItems = false,
         float heightmapOnlyCapUnits = DefaultMaxAutoFixDeltaUnits)
     {
+        var swAll = System.Diagnostics.Stopwatch.StartNew();
         var candidates = FindCandidates(linkCache, priorityIndex, thresholdUnits, log, worldspaceFilter, resolveAssetPath);
+        log($"  [timing] FindCandidates total: {swAll.Elapsed.TotalSeconds:F1} s");
         if (forceCorrectCappedItems)
             log("  ** Force-correct enabled: every tier's auto-fix cap is bypassed (up to the 3000-unit " +
                 "mountainside sanity ceiling). This reproduces the 2026-09-12 pre-cap behavior that pushed " +
@@ -468,6 +470,9 @@ public static class FloatingObjectFixer
         string? worldspaceFilter = null,
         Func<string, string?>? resolveAssetPath = null)
     {
+        var swScan = System.Diagnostics.Stopwatch.StartNew();
+        var placedCache = new Dictionary<FormKey, List<PlacedPos>>();
+        var groundCache = new Dictionary<FormKey, (bool Ok, string? EditorId, float Radius, IPlaceableObjectGetter? Record)>();
         var candidates = new List<FloatingCandidate>();
         int checkedCount = 0;
         // (worldspace, gridX, gridY) -> cell FormKey, built alongside the main
@@ -535,10 +540,11 @@ public static class FloatingObjectFixer
             var cellOriginX = cell.Grid.Point.X * 4096f;
             var cellOriginY = cell.Grid.Point.Y * 4096f;
 
-            foreach (var placed in GetAllPlacedObjectsInCell(cell.FormKey, linkCache))
+            foreach (var pp in CachedPlacedObjects(placedCache, cell.FormKey, linkCache))
             {
+                var placed = pp.Placed;
                 if (placed.Placement is null) continue;
-                if (!IsGroundRestingBase(placed.Base, linkCache, out var baseFormKey, out var baseEditorId, out var footprintRadiusLocal)) continue;
+                if (!IsGroundRestingBaseCached(groundCache, placed.Base, linkCache, out var baseFormKey, out var baseEditorId, out var footprintRadiusLocal)) continue;
 
                 var pos = placed.Placement.Position;
                 // ObjectBounds is authored in the mesh's own LOCAL space: a
@@ -714,9 +720,10 @@ public static class FloatingObjectFixer
         }
 
         log($"Checked {checkedCount} ground-resting placed objects; {candidates.Count} sit more than {thresholdUnits:F0} units from the terrain beneath them.");
+        log($"  [timing] cell/reference scan: {swScan.Elapsed.TotalSeconds:F1} s");
 
         if (resolveAssetPath is not null && candidates.Count > 0)
-            candidates = ApplyCollisionAwareness(candidates, cellGridIndex, linkCache, resolveAssetPath, thresholdUnits, log);
+            candidates = ApplyCollisionAwareness(candidates, cellGridIndex, linkCache, resolveAssetPath, thresholdUnits, log, placedCache, groundCache);
 
         return candidates;
     }
@@ -747,9 +754,17 @@ public static class FloatingObjectFixer
         ILinkCache<ISkyrimMod, ISkyrimModGetter> linkCache,
         Func<string, string?> resolveAssetPath,
         float thresholdUnits,
-        Action<string> log)
+        Action<string> log,
+        Dictionary<FormKey, List<PlacedPos>>? placedCache = null,
+        Dictionary<FormKey, (bool Ok, string? EditorId, float Radius, IPlaceableObjectGetter? Record)>? groundCache = null)
     {
         const float CollisionSearchRadius = 700f;
+        placedCache ??= new Dictionary<FormKey, List<PlacedPos>>();
+        var baseCache = new Dictionary<FormKey, IPlaceableObjectGetter?>();
+        // the scan already resolved most of these base records
+        if (groundCache is not null)
+            foreach (var (k, v) in groundCache) baseCache[k] = v.Record;
+        var pathCache = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase);
 
         // Per-candidate: (nifPath, world position/rotation/scale) for every
         // nearby STAT/MSTT instance worth checking. Built in one pass so every
@@ -772,6 +787,7 @@ public static class FloatingObjectFixer
         var perCandidateUnresolvedPathCount = new List<int>();
         var allNifPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
+        var swGather = System.Diagnostics.Stopwatch.StartNew();
         foreach (var c in candidates)
         {
             var instances = new List<CollisionCheckInstance>();
@@ -780,14 +796,22 @@ public static class FloatingObjectFixer
             for (int dy = -1; dy <= 1; dy++)
             {
                 if (!cellGridIndex.TryGetValue((c.Worldspace, c.CellX + dx, c.CellY + dy), out var neighborCell)) continue;
-                foreach (var placed in GetAllPlacedObjectsInCell(neighborCell, linkCache))
+                foreach (var pp in CachedPlacedObjects(placedCache, neighborCell, linkCache))
                 {
-                    if (placed.Placement is null) continue;
-                    if (placed.FormKey.Equals(c.RefFormKey)) continue; // never check an object's own collision against itself
-                    var dist = MathF.Sqrt(MathF.Pow(placed.Placement.Position.X - c.WorldX, 2) + MathF.Pow(placed.Placement.Position.Y - c.WorldY, 2));
+                    if (!pp.HasPlacement) continue;
+                    // An offset along one axis already beyond the radius (plus slack for float rounding) can never pass the exact test below.
+                    if (MathF.Abs(pp.X - c.WorldX) > CollisionSearchRadius + 1f || MathF.Abs(pp.Y - c.WorldY) > CollisionSearchRadius + 1f) continue;
+                    var dist = MathF.Sqrt(MathF.Pow(pp.X - c.WorldX, 2) + MathF.Pow(pp.Y - c.WorldY, 2));
                     if (dist > CollisionSearchRadius) continue;
+                    var placed = pp.Placed;
+                    if (placed.FormKey.Equals(c.RefFormKey)) continue; // never check an object's own collision against itself
 
-                    if (!linkCache.TryResolve<IPlaceableObjectGetter>(placed.Base.FormKey, out var baseRec)) continue;
+                    if (!baseCache.TryGetValue(placed.Base.FormKey, out var baseRec))
+                    {
+                        linkCache.TryResolve<IPlaceableObjectGetter>(placed.Base.FormKey, out baseRec);
+                        baseCache[placed.Base.FormKey] = baseRec;
+                    }
+                    if (baseRec is null) continue;
                     // Only STAT/MSTT carry static Havok collision worth checking here -
                     // TREE canopies are deliberately walk-through in vanilla Skyrim (see
                     // this project's own vanilla-analogue principle), so a tree is never
@@ -809,7 +833,11 @@ public static class FloatingObjectFixer
                     var modelFile = modelFileLink?.ToString();
                     if (string.IsNullOrWhiteSpace(modelFile)) continue;
 
-                    var diskPath = resolveAssetPath(modelFile);
+                    if (!pathCache.TryGetValue(modelFile, out var diskPath))
+                    {
+                        diskPath = resolveAssetPath(modelFile);
+                        pathCache[modelFile] = diskPath;
+                    }
                     if (diskPath is null) { unresolvedPath++; continue; } // loose file not found (e.g. BSA-only asset) - safe miss, see Mo2Resolver.ResolveDataFile
 
                     allNifPaths.Add(diskPath);
@@ -826,12 +854,16 @@ public static class FloatingObjectFixer
             perCandidateUnresolvedPathCount.Add(unresolvedPath);
         }
 
+        log($"  [timing] gathering nearby instances: {swGather.Elapsed.TotalSeconds:F1} s");
         if (allNifPaths.Count == 0) return candidates;
 
         log($"  CollisionRaycaster: checking real collision geometry for {candidates.Count} candidate(s) against {allNifPaths.Count} unique nearby mesh(es) ...");
+        var swExtract = System.Diagnostics.Stopwatch.StartNew();
         var extracted = CollisionRaycaster.ExtractCollisionBatch(allNifPaths, log);
+        log($"  [timing] collision extraction of {allNifPaths.Count} mesh(es): {swExtract.Elapsed.TotalSeconds:F1} s");
         var worldTriCache = new Dictionary<FormKey, List<Tri3>>();
 
+        var swRay = System.Diagnostics.Stopwatch.StartNew();
         var refined = new List<FloatingCandidate>(candidates.Count);
         int upgraded = 0, noLongerFloating = 0, geometryChecked = 0;
 
@@ -940,7 +972,47 @@ public static class FloatingObjectFixer
         }
 
         log($"  CollisionRaycaster: {geometryChecked} candidate(s) had usable nearby collision geometry - {upgraded} target(s) refined, {noLongerFloating} reclassified as not actually floating.");
+        log($"  [timing] raycasts + classification: {swRay.Elapsed.TotalSeconds:F1} s");
         return refined;
+    }
+
+    // Same winners as GetAllPlacedObjectsInCell, materialised once per cell: the scan and
+    // the collision stage (up to 9 neighbour cells per candidate) read the same cells again and again.
+    // X/Y are read once: every Mutagen getter access re-creates lazy overlay objects, which dominated the nearby-instance search.
+    readonly record struct PlacedPos(IPlacedObjectGetter Placed, float X, float Y, bool HasPlacement);
+
+    static List<PlacedPos> CachedPlacedObjects(
+        Dictionary<FormKey, List<PlacedPos>> cache, FormKey cellFormKey, ILinkCache<ISkyrimMod, ISkyrimModGetter> linkCache)
+    {
+        if (!cache.TryGetValue(cellFormKey, out var list))
+        {
+            list = new List<PlacedPos>();
+            foreach (var placed in GetAllPlacedObjectsInCell(cellFormKey, linkCache))
+            {
+                var pl = placed.Placement;
+                list.Add(pl is null ? new PlacedPos(placed, 0f, 0f, false) : new PlacedPos(placed, pl.Position.X, pl.Position.Y, true));
+            }
+            cache[cellFormKey] = list;
+        }
+        return list;
+    }
+
+    // IsGroundRestingBase depends only on the base record, and ~170k placed objects share far fewer bases.
+    static bool IsGroundRestingBaseCached(
+        Dictionary<FormKey, (bool Ok, string? EditorId, float Radius, IPlaceableObjectGetter? Record)> cache,
+        IFormLinkGetter<IPlaceableObjectGetter> baseLink, ILinkCache<ISkyrimMod, ISkyrimModGetter> linkCache,
+        out FormKey baseFormKey, out string? baseEditorId, out float footprintRadiusLocal)
+    {
+        baseFormKey = baseLink.FormKey;
+        if (cache.TryGetValue(baseFormKey, out var hit))
+        {
+            baseEditorId = hit.EditorId; footprintRadiusLocal = hit.Radius;
+            return hit.Ok;
+        }
+        var ok = IsGroundRestingBase(baseLink, linkCache, out baseFormKey, out baseEditorId, out footprintRadiusLocal);
+        linkCache.TryResolve<IPlaceableObjectGetter>(baseFormKey, out var rec);
+        cache[baseFormKey] = (ok, baseEditorId, footprintRadiusLocal, rec);
+        return ok;
     }
 
     // Confirmed necessary on a real 2026-09-12 live test, and a much bigger

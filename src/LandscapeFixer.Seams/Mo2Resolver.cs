@@ -77,6 +77,8 @@ public static class Mo2Resolver
         // unresolvable before this, which is why collision-awareness kept
         // finding nothing there despite genuinely relevant geometry sitting
         // right next to the flagged candidates.
+        readonly System.Collections.Concurrent.ConcurrentDictionary<string, bool> _dirExists = new(StringComparer.OrdinalIgnoreCase);
+
         public string? ResolveDataFile(string relativeDataPath)
         {
             var normalized = relativeDataPath.Replace('/', Path.DirectorySeparatorChar);
@@ -85,6 +87,9 @@ public static class Mo2Resolver
             foreach (var modName in EnabledModsInPriorityOrder)
             {
                 var candidate = Path.Combine(ModsDir, modName, normalized);
+                // Most mods have no such folder at all, and the same folders repeat across lookups: ask the disk once per folder.
+                var parent = Path.GetDirectoryName(candidate);
+                if (parent is not null && !_dirExists.GetOrAdd(parent, static d => Directory.Exists(d))) continue;
                 if (File.Exists(candidate)) return candidate;
             }
             foreach (var modName in EnabledModsInPriorityOrder)
@@ -111,6 +116,8 @@ public static class Mo2Resolver
     // A null value means "looked, not in this archive" (cached the same way
     // as the reader cache, for the same reason).
     static readonly Dictionary<string, string?> _archiveExtractCache = new(StringComparer.OrdinalIgnoreCase);
+
+    static readonly Dictionary<string, Dictionary<string, IArchiveFile>> _archiveNameIndex = new(StringComparer.OrdinalIgnoreCase);
 
     static readonly string _archiveExtractDir = Path.Combine(Path.GetTempPath(), "FloatingObjectArchiveCache");
 
@@ -185,8 +192,18 @@ public static class Mo2Resolver
                 // archive is a far smaller coincidence risk than the resolution
                 // failure it replaces (a genuinely-nearby collision mesh being
                 // silently invisible to the whole subsystem).
-                entry ??= reader.Files.FirstOrDefault(f =>
-                    string.Equals(Path.GetFileName(f.Path), fileName, StringComparison.OrdinalIgnoreCase));
+                // One filename index per archive, built on first need: the same first-match result as scanning reader.Files
+                // for every lookup, without re-walking the whole archive (thousands of entries) for each mesh and each archive.
+                if (entry is null)
+                {
+                    if (!_archiveNameIndex.TryGetValue(archivePath, out var byName))
+                    {
+                        byName = new Dictionary<string, IArchiveFile>(StringComparer.OrdinalIgnoreCase);
+                        foreach (var f in reader.Files) byName.TryAdd(Path.GetFileName(f.Path), f);
+                        _archiveNameIndex[archivePath] = byName;
+                    }
+                    byName.TryGetValue(fileName, out entry);
+                }
                 if (entry is not null)
                 {
                     Directory.CreateDirectory(_archiveExtractDir);

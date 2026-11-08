@@ -157,6 +157,22 @@ public static class HybridRunner
         return PlanFrom(env.BaseOrder, s, log);
     }
 
+    static readonly Dictionary<string, List<string>> PlanCache = new();
+
+    /// <summary>Identifies one SeamFixer plan run: every plugin file (path, size, write time) and every setting that changes its output.</summary>
+    static string PlanKey(List<Mo2Resolver.ResolvedPlugin> order, HybridSettings s, List<string> trusted, List<string> winners)
+    {
+        var sb = new System.Text.StringBuilder();
+        foreach (var p in order)
+        {
+            var fi = new FileInfo(p.FilePath);
+            sb.Append(p.FileName).Append('|').Append(p.FilePath).Append('|').Append(fi.Exists ? fi.Length : -1).Append('|').Append(fi.Exists ? fi.LastWriteTimeUtc.Ticks : -1).Append(';');
+        }
+        sb.Append("#T:").Append(string.Join(",", trusted)).Append("#W:").Append(string.Join(",", winners))
+          .Append("#N:").Append(s.TrustNorthernRoads).Append("#WM:").Append(string.Join(",", s.WaterMods));
+        return sb.ToString();
+    }
+
     static TerrainPlan PlanFrom(List<Mo2Resolver.ResolvedPlugin> baseOrder, HybridSettings s, Action<string> log)
     {
         // Keeping a plugin makes it trusted, which can expose NEW overwriters of it (A overwrites trusted T; once A is kept,
@@ -169,16 +185,25 @@ public static class HybridRunner
         for (var pass = 1; pass <= 8; pass++)
         {
             var trusted = found.Keys.Where(k => !revert.Contains(k)).Concat(winnersList).Concat(TrustedFamilies(s)).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
-            var staging = Path.Combine(Path.GetTempPath(), "GroundskeeperPlan-" + Guid.NewGuid().ToString("N"));
-            Directory.CreateDirectory(staging);
-            var lines = new List<string>();
-            try
+            // Same plugin files + same trust/winner/water inputs give the same SeamFixer log, so a repeat (Scan, then Generate;
+            // or a re-tick that revisits an earlier trust set) reuses it instead of re-reading ~750 MB of plugins.
+            var key = PlanKey(baseOrder, s, trusted, winnersList);
+            List<string> lines;
+            lock (PlanCache) PlanCache.TryGetValue(key, out lines!);
+            if (lines is null)
             {
-                SeamFixer.GenerateFixPluginForResolvedPlugins(baseOrder, "LandscapeSeamPlan.esp", staging,
-                    m => lines.Add(m), s.TrustNorthernRoads, waterTrust: WaterOptions(s), customTrustedPlugins: trusted,
-                    priorityOverNorthernRoadsPlugins: winnersList);
+                var staging = Path.Combine(Path.GetTempPath(), "GroundskeeperPlan-" + Guid.NewGuid().ToString("N"));
+                Directory.CreateDirectory(staging);
+                lines = new List<string>();
+                try
+                {
+                    SeamFixer.GenerateFixPluginForResolvedPlugins(baseOrder, "LandscapeSeamPlan.esp", staging,
+                        m => lines.Add(m), s.TrustNorthernRoads, waterTrust: WaterOptions(s), customTrustedPlugins: trusted,
+                        priorityOverNorthernRoadsPlugins: winnersList);
+                }
+                finally { try { Directory.Delete(staging, recursive: true); } catch { /* scratch in %TEMP% */ } }
+                lock (PlanCache) { if (PlanCache.Count >= 32) PlanCache.Clear(); PlanCache[key] = lines; }
             }
-            finally { try { Directory.Delete(staging, recursive: true); } catch { /* scratch in %TEMP% */ } }
 
             var added = 0;
             var thisPass = new Dictionary<string, (int Cells, int Max, string To, List<string> Samples)>(StringComparer.OrdinalIgnoreCase);
@@ -327,7 +352,9 @@ public static class HybridRunner
         var winnersList = EffectiveWinners(s, baseOrder.Select(p => p.FileName));
         if (s.Seams || s.TextureLayers)
         {
+            var swPlan = System.Diagnostics.Stopwatch.StartNew();
             var plan = PlanFrom(baseOrder, s, log);
+            log($"Plan: {swPlan.Elapsed.TotalSeconds:F1} s");
             var revert = new HashSet<string>(s.RevertPlugins, StringComparer.OrdinalIgnoreCase);
             customTrusted = plan.Candidates.Select(c => c.Plugin).Where(p => !revert.Contains(p)).Concat(winnersList).Concat(TrustedFamilies(s)).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
             if (winnersList.Count > 0) log($"Terrain winners, highest first: {string.Join(" > ", winnersList)}.");
@@ -348,9 +375,11 @@ public static class HybridRunner
         {
             if (!on) return;
             log($"== {label} ==");
+            var sw = System.Diagnostics.Stopwatch.StartNew();
             try
             {
                 var written = run();
+                log($"{label}: {sw.Elapsed.TotalSeconds:F1} s");
                 if (written is not null && File.Exists(written))
                     patches.Add(new Mo2Resolver.ResolvedPlugin(Path.GetFileName(written), written));
                 else log($"{label}: nothing to write.");
@@ -400,6 +429,7 @@ public static class HybridRunner
             }
 
             log("== Merge ==");
+            var swMerge = System.Diagnostics.Stopwatch.StartNew();
             var mergeOrder = baseOrder.Concat(patches).ToList();
             // SnowFixer = "": the old Snow Fixer is replaced by Landscape Fixer, whose plugin is never merged.
             var sources = new SourceToolPlugins(SnowFixer: "");
@@ -412,6 +442,7 @@ public static class HybridRunner
             }
             var merged = MergeEngine.RunForResolvedPlugins(mergeOrder, sources, s.OutputPluginName, mergeOut, log,
                 dryRun: false, matchNeighborsToTrustedChain: s.MatchNeighborsToTrustedChain);
+            log($"Merge: {swMerge.Elapsed.TotalSeconds:F1} s");
             var cells = merged.Stats.CellsFromOneSource + merged.Stats.CellsHeightAndTextureMerged;
             if (merged.Stats.PlacedRefsForwarded > 0) log($"Merge also forwarded {merged.Stats.PlacedRefsForwarded} placed reference(s).");
             var outs = s.DryRun ? Array.Empty<string>() : merged.OutputPaths.ToArray();
