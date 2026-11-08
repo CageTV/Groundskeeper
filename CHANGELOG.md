@@ -16,8 +16,9 @@ Road Mask Merger, Floating Object Fixer and PatchForeman separately.
 - Fix: the game masters (Skyrim.esm, the DLCs) no longer make every plugin a trusted "patch", which had
   stopped the earlier tools from restoring any landscape. Official and Creation Club plugins are always
   trusted.
-- Floating-object pass no longer needs Python, PyNifly or SciPy: collision is read in-process with niflysharp,
-  checked against the old PyNifly output on 269 real meshes.
+- Floating-object pass no longer needs Python, PyNifly or SciPy: collision is read in-process with the pure-C# Nifly
+  library (no native DLLs, no Visual C++ runtime), checked against the old PyNifly output on real meshes and, end to end,
+  against the previous reader (byte-identical plugin on a 453-plugin list).
 - `--water-report`: read-only CSV of neighbouring cells whose water disagrees (candidate "random water squares"); no automatic fix yet.
 - Road inputs explained in the window (hint, Browse button, live check of the road mask folder); a wrong folder skips the
   road pass with a clear message instead of failing. ACMOS Road Generator credited; its images are not bundled.

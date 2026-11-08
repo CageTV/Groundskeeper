@@ -13,12 +13,11 @@ Mutagen keeps its own licence and is not relicensed by Groundskeeper's licence. 
 
 Copyright (c) .NET Foundation and Contributors. Used to read road mask images.
 
-## niflysharp and nifly (GPL-3.0)
+## Nifly / NiflySharp (GPL-3.0)
 
-The floating-object pass reads NIF files and Havok collision with **niflysharp** 2.0.4 (C# bindings by
-SteveTownsend, <https://github.com/SteveTownsend/niflyswig>) of **nifly** (by ousnius,
-<https://github.com/ousnius/nifly>), licensed GPL-3.0. It ships with Groundskeeper as `nifly.dll` and
-`niflycpp.dll` next to the program. It keeps its own licence.
+The floating-object pass reads NIF files and Havok collision with **Nifly** 1.1.0 (the NiflySharp library by
+ousnius, <https://github.com/ousnius/NiflySharp>), a pure C# library licensed GPL-3.0. It ships with
+Groundskeeper as `NiflySharp.dll` next to the program and keeps its own licence.
 
 ## PyNifly (reference only)
 

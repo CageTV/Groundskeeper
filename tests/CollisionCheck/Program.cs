@@ -1,4 +1,4 @@
-// Compares the in-process niflysharp collision reader with reference output from the old PyNifly extractor.
+// Compares the in-process Nifly collision reader with reference output from the old PyNifly extractor.
 // usage: CollisionCheck <ref.json produced by extract_collision.py>
 // Matching = same triangle count and the same multiset of triangles (vertex order within a triangle ignored), to 0.05 units.
 using System.Text.Json;

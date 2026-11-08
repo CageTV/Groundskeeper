@@ -1,17 +1,18 @@
 // Reads Havok collision geometry from a NIF in-process, replacing the old extract_collision.py + PyNifly +
 // Python dependency (the cause of the "Missing PyNifly & SciPy" bug reports).
 //
-// NIF/Havok structure comes from niflysharp (SWIG C# bindings of ousnius' nifly, GPL-3.0): header, block types and sizes,
-// and the shape chain. niflysharp exposes the compressed-mesh chunk and big-triangle lists only as opaque wrappers
-// (no element access), so the one block that holds the actual triangles, bhkCompressedMeshShapeData, is decoded here
-// from the raw file bytes, and the parse is checked against the block size: a layout mismatch fails loudly.
+// NIF/Havok structure comes from the pure-C# `Nifly` package (NiflySharp by ousnius, GPL-3.0; block classes generated from nif.xml):
+// no native DLLs and no Visual C++ runtime needed. It exposes the typed shape chain and the compressed-mesh chunks, big vertices
+// and big triangles directly, so there is no raw byte decoding any more.
 //
 // Output matches the old extractor: triangles in NIF-local engine units (Havok units x 69.99125), per-path result with
 // Ok/Reason, never throwing for one bad file. Shape coverage mirrors the Python version: bhkListShape, bhkConvexTransformShape /
 // bhkTransformShape, bhkMoppBvTreeShape, bhkCompressedMeshShape (the common case), bhkBoxShape, bhkConvexVerticesShape (hull rebuilt,
 // flagged approx). Capsule/sphere/anything else is deliberately skipped, as before.
 
-using nifly;
+using NiflySharp;
+using NiflySharp.Blocks;
+using NiflySharp.Structs;
 
 namespace SeamFinder.Core;
 
@@ -30,34 +31,30 @@ public static class NifCollisionReader
     sealed class Ctx
     {
         public required NifFile Nif;
-        public required NiHeader Header;
-        public required byte[] Bytes;
-        public required long[] BlockStart;
         public HashSet<string> ShapeTypes = new();
         public int Depth;
+        public int BlockCount => Nif.Blocks.Count;
     }
 
     static ExtractedCollision ExtractCore(string path)
     {
         if (!File.Exists(path)) return Fail("file not found");
-        var bytes = File.ReadAllBytes(path);
-        using var nif = new NifFile();
-        var rc = nif.Load(path);
+        var nif = new NifFile();
+        var rc = nif.Load(path, new NifFileLoadOptions());
         if (rc != 0) return Fail($"NIF load failed (code {rc})");
-        var header = nif.GetHeader();
         var root = nif.GetRootNode();
         if (root == null) return Fail("no root node");
-        var collIdx = root.collisionRef.index;
-        if (collIdx == uint.MaxValue || collIdx >= header.GetNumBlocks()) return Fail("no collision object on root node");
+        var ctx = new Ctx { Nif = nif };
+        var collIdx = root.CollisionObject.Index;
+        if (!Valid(ctx, collIdx)) return Fail("no collision object on root node");
 
-        if (header.GetBlockById(collIdx) is not bhkNiCollisionObject obj) return Fail("collision object is not a bhkNiCollisionObject (unsupported)");
-        var bodyIdx = obj.bodyRef.index;
-        if (bodyIdx == uint.MaxValue || bodyIdx >= header.GetNumBlocks()) return Fail("collision object has no body");
-        if (header.GetBlockById(bodyIdx) is not bhkRigidBody body) return Fail("collision body is not a bhkRigidBody (unsupported here)");
-        var shapeIdx = body.shapeRef.index;
-        if (shapeIdx == uint.MaxValue || shapeIdx >= header.GetNumBlocks()) return Fail("body has no shape");
+        if (nif.GetBlock(collIdx) is not bhkNiCollisionObject obj) return Fail("collision object is not a bhkNiCollisionObject (unsupported)");
+        var bodyIdx = obj.Body.Index;
+        if (!Valid(ctx, bodyIdx)) return Fail("collision object has no body");
+        if (nif.GetBlock(bodyIdx) is not bhkRigidBody body) return Fail("collision body is not a bhkRigidBody (unsupported here)");
+        var shapeIdx = body.Shape.Index;
+        if (!Valid(ctx, shapeIdx)) return Fail("body has no shape");
 
-        var ctx = new Ctx { Nif = nif, Header = header, Bytes = bytes, BlockStart = ComputeBlockStarts(header, bytes) };
         var local = Resolve(ctx, shapeIdx);
         if (local.Count == 0)
             return Fail($"no ground-relevant triangles (shape types seen: [{string.Join(", ", ctx.ShapeTypes.OrderBy(x => x))}])");
@@ -67,13 +64,26 @@ public static class NifCollisionReader
         double tx = 0, ty = 0, tz = 0;
         if (body is bhkRigidBodyT)
         {
-            rot = QuatToMatrix(body.rotation.x, body.rotation.y, body.rotation.z, body.rotation.w);
-            tx = body.translation.x; ty = body.translation.y; tz = body.translation.z;
+            var (q, t) = BodyTransform(body);
+            rot = QuatToMatrix(q.X, q.Y, q.Z, q.W);
+            tx = t.X; ty = t.Y; tz = t.Z;
         }
         var tris = new List<Tri3>(local.Count);
         foreach (var (a, b, c) in local)
             tris.Add(new Tri3(Out(rot, a, tx, ty, tz), Out(rot, b, tx, ty, tz), Out(rot, c, tx, ty, tz)));
         return new ExtractedCollision(true, null, tris, ctx.ShapeTypes.OrderBy(x => x).ToList(), ctx.ShapeTypes.Any(t => t.Contains("approx")));
+    }
+
+    static bool Valid(Ctx c, int index) => index >= 0 && index < c.BlockCount;
+
+    // The rigid-body info struct that holds rotation + translation depends on the file version (Skyrim SE uses the 2010 layout);
+    // take the first one that carries a rotation.
+    static (hkQuaternion Rotation, System.Numerics.Vector4 Translation) BodyTransform(bhkRigidBody b)
+    {
+        static bool Has(hkQuaternion q) => q.X != 0 || q.Y != 0 || q.Z != 0 || q.W != 0;
+        if (Has(b.RigidBodyInfo_bRBCI2010.Rotation)) return (b.RigidBodyInfo_bRBCI2010.Rotation, b.RigidBodyInfo_bRBCI2010.Translation);
+        if (Has(b.RigidBodyInfo_bRBCI2014.Rotation)) return (b.RigidBodyInfo_bRBCI2014.Rotation, b.RigidBodyInfo_bRBCI2014.Translation);
+        return (b.RigidBodyInfo_bRBCI550660.Rotation, b.RigidBodyInfo_bRBCI550660.Translation);
     }
 
     static Vec3 Out(double[,] r, (double X, double Y, double Z) v, double tx, double ty, double tz)
@@ -86,54 +96,43 @@ public static class NifCollisionReader
 
     // ---- shape chain ----
 
-    static List<((double X, double Y, double Z) A, (double X, double Y, double Z) B, (double X, double Y, double Z) C)> Resolve(Ctx c, uint blockIndex)
+    static List<((double X, double Y, double Z) A, (double X, double Y, double Z) B, (double X, double Y, double Z) C)> Resolve(Ctx c, int blockIndex)
     {
         var empty = new List<((double, double, double), (double, double, double), (double, double, double))>();
-        if (blockIndex == uint.MaxValue || blockIndex >= c.Header.GetNumBlocks() || c.Depth > 32) return empty;
+        if (!Valid(c, blockIndex) || c.Depth > 32) return empty;
         c.Depth++;
         try
         {
-            var block = c.Header.GetBlockById(blockIndex);
+            var block = c.Nif.GetBlock(blockIndex);
             switch (block)
             {
                 case bhkListShape list:
                 {
                     var all = empty;
-                    var n = list.subShapeRefs.GetSize();
-                    for (uint i = 0; i < n; i++) all.AddRange(Resolve(c, list.subShapeRefs.GetBlockRef(i)));
+                    foreach (var sub in list.SubShapes.Indices) all.AddRange(Resolve(c, sub));
                     return all;
                 }
-                case bhkTransformShape tf: // bhkConvexTransformShape derives from it
-                {
-                    var child = Resolve(c, tf.shapeRef.index);
-                    // nifly's Matrix4: rows 0-2 hold the rotation (row r = [r][0..2]), row 3 holds the translation.
-                    var m = tf.xform;
-                    var row = new Vector3(0, 0, 0);
-                    var R = new double[3, 3];
-                    for (var r = 0; r < 3; r++) { m.GetRow(r, row); R[r, 0] = row.x; R[r, 1] = row.y; R[r, 2] = row.z; }
-                    m.GetRow(3, row);
-                    var t = new Vector3(row.x, row.y, row.z);
-                    var res = empty;
-                    foreach (var (a, b, cc) in child) res.Add((Xf(R, a, t), Xf(R, b, t), Xf(R, cc, t)));
-                    return res;
-                }
+                case bhkTransformShape tf:
+                    return Transformed(Resolve(c, tf.Shape.Index), tf.Transform);
+                case bhkConvexTransformShape ctf:
+                    return Transformed(Resolve(c, ctf.Shape.Index), ctf.Transform);
                 case bhkMoppBvTreeShape mopp:
-                    return Resolve(c, mopp.shapeRef.index);
+                    return Resolve(c, mopp.Shape.Index);
                 case bhkCompressedMeshShape cms:
                 {
                     c.ShapeTypes.Add("bhkCompressedMeshShape");
-                    return DecodeCompressedMesh(c, cms.dataRef.index);
+                    return DecodeCompressedMesh(c, cms.Data.Index);
                 }
                 case bhkBoxShape box:
                 {
                     c.ShapeTypes.Add("bhkBoxShape");
-                    return BoxTriangles(box.dimensions.x, box.dimensions.y, box.dimensions.z);
+                    return BoxTriangles(box.Dimensions.X, box.Dimensions.Y, box.Dimensions.Z);
                 }
                 case bhkConvexVerticesShape cv:
                 {
                     c.ShapeTypes.Add("bhkConvexVerticesShape (approx: convex hull reconstructed)");
                     var pts = new List<(double, double, double)>();
-                    for (var i = 0; i < cv.verts.size(); i++) { var v = cv.verts.items()[i]; pts.Add((v.x, v.y, v.z)); }
+                    foreach (var v in cv.Vertices) pts.Add((v.X, v.Y, v.Z));
                     return HullTriangles(pts);
                 }
                 default:
@@ -144,8 +143,25 @@ public static class NifCollisionReader
         finally { c.Depth--; }
     }
 
-    static (double, double, double) Xf(double[,] R, (double X, double Y, double Z) v, Vector3 t) =>
-        (R[0, 0] * v.X + R[0, 1] * v.Y + R[0, 2] * v.Z + t.x, R[1, 0] * v.X + R[1, 1] * v.Y + R[1, 2] * v.Z + t.y, R[2, 0] * v.X + R[2, 1] * v.Y + R[2, 2] * v.Z + t.z);
+    // NiflySharp's Matrix44 names its fields M<column><row> in file order, so file row r (the old nifly Matrix4 row r) is M1r..M3r:
+    // rows 0-2 hold the rotation (row r = [r][0..2]), row 3 holds the translation.
+    static List<((double, double, double), (double, double, double), (double, double, double))> Transformed(
+        List<((double X, double Y, double Z) A, (double X, double Y, double Z) B, (double X, double Y, double Z) C)> child, Matrix44 m)
+    {
+        var R = new double[3, 3]
+        {
+            { m.M11, m.M21, m.M31 },
+            { m.M12, m.M22, m.M32 },
+            { m.M13, m.M23, m.M33 },
+        };
+        var t = (X: (double)m.M14, Y: (double)m.M24, Z: (double)m.M34);
+        var res = new List<((double, double, double), (double, double, double), (double, double, double))>(child.Count);
+        foreach (var (a, b, cc) in child) res.Add((Xf(R, a, t), Xf(R, b, t), Xf(R, cc, t)));
+        return res;
+    }
+
+    static (double, double, double) Xf(double[,] R, (double X, double Y, double Z) v, (double X, double Y, double Z) t) =>
+        (R[0, 0] * v.X + R[0, 1] * v.Y + R[0, 2] * v.Z + t.X, R[1, 0] * v.X + R[1, 1] * v.Y + R[1, 2] * v.Z + t.Y, R[2, 0] * v.X + R[2, 1] * v.Y + R[2, 2] * v.Z + t.Z);
 
     static List<((double, double, double), (double, double, double), (double, double, double))> BoxTriangles(double dx, double dy, double dz)
     {
@@ -188,84 +204,42 @@ public static class NifCollisionReader
         return res;
     }
 
-    // ---- bhkCompressedMeshShapeData, decoded from the raw block bytes ----
+    // ---- bhkCompressedMeshShapeData ----
 
-    static long[] ComputeBlockStarts(NiHeader header, byte[] bytes)
-    {
-        var fileLength = bytes.Length;
-        var n = (int)header.GetNumBlocks();
-        long total = 0;
-        for (uint i = 0; i < n; i++) total += header.GetBlockSize(i);
-        // blocks are followed by the footer: uint root count + that many int root indices
-        long footer = -1;
-        for (var roots = 1; roots <= 8 && footer < 0; roots++)
-        {
-            var f = 4 + 4L * roots;
-            var at = fileLength - f;
-            if (at < 0 || BitConverter.ToUInt32(bytes, (int)at) != roots) continue;
-            var ok = true;
-            for (var r = 0; r < roots; r++) ok &= BitConverter.ToUInt32(bytes, (int)(at + 4 + 4L * r)) < n;
-            if (ok) footer = f;
-        }
-        if (footer < 0) throw new InvalidDataException("could not locate the NIF footer");
-        var starts = new long[n];
-        starts[0] = fileLength - footer - total;
-        if (starts[0] < 0) throw new InvalidDataException("block sizes exceed the file length");
-        for (var i = 1; i < n; i++) starts[i] = starts[i - 1] + header.GetBlockSize((uint)(i - 1));
-        return starts;
-    }
-
-    static List<((double, double, double), (double, double, double), (double, double, double))> DecodeCompressedMesh(Ctx c, uint dataBlock)
+    static List<((double, double, double), (double, double, double), (double, double, double))> DecodeCompressedMesh(Ctx c, int dataBlock)
     {
         var res = new List<((double, double, double), (double, double, double), (double, double, double))>();
-        if (dataBlock == uint.MaxValue || dataBlock >= c.Header.GetNumBlocks()) return res;
-        if (c.Header.GetBlockTypeStringById(dataBlock) != "bhkCompressedMeshShapeData") throw new InvalidDataException("compressed mesh data block has an unexpected type");
-        var start = c.BlockStart[dataBlock];
-        var size = c.Header.GetBlockSize(dataBlock);
-        var p = new Reader(c.Bytes, start, start + size);
+        if (!Valid(c, dataBlock)) return res;
+        if (c.Nif.GetBlock(dataBlock) is not bhkCompressedMeshShapeData data) throw new InvalidDataException("compressed mesh data block has an unexpected type");
+        if (data.NumNamedMaterials != 0) throw new InvalidDataException("named materials present (unsupported)");
 
-        p.U32(); p.U32(); p.U32(); p.U32();            // bits per index / w index, masks
-        var error = p.F32();
-        p.Skip(32);                                     // bounds min / max (Vector4 x2)
-        p.Skip(2);                                      // welding type, material type
-        p.Skip(4L * p.U32()); p.Skip(4L * p.U32()); p.Skip(4L * p.U32()); // materials32/16/8
-        p.Skip(8L * p.U32());                           // materials (havok material + filter)
-        var named = p.U32(); if (named != 0) throw new InvalidDataException("named materials present (unsupported)");
-        var nTransforms = p.U32();
-        var transforms = new (double tx, double ty, double tz, double qx, double qy, double qz, double qw)[nTransforms];
-        for (var i = 0; i < nTransforms; i++)
+        var transforms = data.ChunkTransforms;
+        var bigVerts = data.BigVerts;
+        foreach (var bt in data.BigTris)
         {
-            var tx = p.F32(); var ty = p.F32(); var tz = p.F32(); p.F32();
-            var qx = p.F32(); var qy = p.F32(); var qz = p.F32(); var qw = p.F32();
-            transforms[i] = (tx, ty, tz, qx, qy, qz, qw);
+            int a = bt.Triangle.V1, b = bt.Triangle.V2, cc = bt.Triangle.V3;
+            if (a < bigVerts.Count && b < bigVerts.Count && cc < bigVerts.Count)
+                res.Add(((bigVerts[a].X, bigVerts[a].Y, bigVerts[a].Z), (bigVerts[b].X, bigVerts[b].Y, bigVerts[b].Z), (bigVerts[cc].X, bigVerts[cc].Y, bigVerts[cc].Z)));
         }
-        var nBigVerts = p.U32();
-        var bigVerts = new (double, double, double)[nBigVerts];
-        for (var i = 0; i < nBigVerts; i++) { bigVerts[i] = (p.F32(), p.F32(), p.F32()); p.F32(); }
-        var nBigTris = p.U32();
-        for (var i = 0; i < nBigTris; i++)
-        {
-            int a = p.U16(), b = p.U16(), cc = p.U16(); p.U32(); p.U16();
-            if (a < nBigVerts && b < nBigVerts && cc < nBigVerts) res.Add((bigVerts[a], bigVerts[b], bigVerts[cc]));
-        }
+
+        var error = data.Error;
         var step = error > 0 && error < 1 ? error : 0.001;
-        var nChunks = p.U32();
-        for (var ci = 0; ci < nChunks; ci++)
+        foreach (var chunk in data.Chunks)
         {
-            var ox = p.F32(); var oy = p.F32(); var oz = p.F32(); p.F32();
-            p.U32(); p.U16(); int tIndex = p.U16();
-            var verts = p.U16s(p.U32()); var idx = p.U16s(p.U32()); var strips = p.U16s(p.U32()); p.Skip(2L * p.U32());
-            var nv = verts.Length / 3;
+            double ox = chunk.Translation.X, oy = chunk.Translation.Y, oz = chunk.Translation.Z;
+            int tIndex = chunk.TransformIndex;
+            var verts = chunk.Vertices; var idx = chunk.Indices; var strips = chunk.Strips;
+            var nv = verts.Count;
             var pts = new (double, double, double)[nv];
             double[,]? R = null; (double, double, double) T = (0, 0, 0);
-            if (tIndex != 0xFFFF && tIndex < nTransforms)
+            if (tIndex != 0xFFFF && tIndex < transforms.Count)
             {
                 var t = transforms[tIndex];
-                R = QuatToMatrix(t.qx, t.qy, t.qz, t.qw); T = (t.tx, t.ty, t.tz);
+                R = QuatToMatrix(t.Rotation.X, t.Rotation.Y, t.Rotation.Z, t.Rotation.W); T = (t.Translation.X, t.Translation.Y, t.Translation.Z);
             }
             for (var v = 0; v < nv; v++)
             {
-                double x = ox + verts[3 * v] * step, y = oy + verts[3 * v + 1] * step, z = oz + verts[3 * v + 2] * step;
+                double x = ox + verts[v].X * step, y = oy + verts[v].Y * step, z = oz + verts[v].Z * step;
                 if (R != null)
                 {
                     var rx = R[0, 0] * x + R[0, 1] * y + R[0, 2] * z + T.Item1;
@@ -286,32 +260,16 @@ public static class NifCollisionReader
                 }
                 o += len;
             }
-            for (; o + 2 < idx.Length; o += 3)
+            for (; o + 2 < idx.Count; o += 3)
             {
                 int a = idx[o], b = idx[o + 1], cc = idx[o + 2];
                 if (a < nv && b < nv && cc < nv) res.Add((pts[a], pts[b], pts[cc]));
             }
         }
-        p.U32(); // numConvexPieceA
-        if (p.Position != p.End) throw new InvalidDataException($"compressed mesh block layout mismatch ({p.End - p.Position} bytes unread)");
         return res;
     }
 
     // ---- small helpers ----
-
-    sealed class Reader
-    {
-        readonly byte[] _b;
-        public long Position;
-        public readonly long End;
-        public Reader(byte[] b, long start, long end) { _b = b; Position = start; End = end; }
-        void Need(long n) { if (Position + n > End) throw new InvalidDataException("compressed mesh block ended early"); }
-        public uint U32() { Need(4); var v = BitConverter.ToUInt32(_b, (int)Position); Position += 4; return v; }
-        public float F32() { Need(4); var v = BitConverter.ToSingle(_b, (int)Position); Position += 4; return v; }
-        public ushort U16() { Need(2); var v = BitConverter.ToUInt16(_b, (int)Position); Position += 2; return v; }
-        public void Skip(long n) { Need(n); Position += n; }
-        public ushort[] U16s(uint n) { Need(2L * n); var a = new ushort[n]; for (var i = 0; i < n; i++) { a[i] = BitConverter.ToUInt16(_b, (int)Position); Position += 2; } return a; }
-    }
 
     static double[,] Ident() => new double[,] { { 1, 0, 0 }, { 0, 1, 0 }, { 0, 0, 1 } };
 

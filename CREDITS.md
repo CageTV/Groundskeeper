@@ -48,9 +48,8 @@ original author.
 - **Mutagen** by Noggog and the Mutagen-Modding contributors, for reading and writing plugins.
   GPL-3.0. <https://github.com/Mutagen-Modding/Mutagen>
 - **System.Drawing.Common** (Microsoft), for reading road mask images. MIT.
-- **niflysharp** (C# bindings, by SteveTownsend) of **nifly** (by ousnius), for reading NIF files and their
-  Havok collision in the floating-object pass. GPL-3.0.
-  <https://github.com/SteveTownsend/niflyswig> · <https://github.com/ousnius/nifly>
+- **Nifly / NiflySharp** (pure C#, by ousnius), for reading NIF files and their Havok collision in the
+  floating-object pass. GPL-3.0. <https://github.com/ousnius/NiflySharp>
 - **PyNifly** by BadDogSkyrim. Not used by Groundskeeper, but its output was the reference the in-process
   collision reader was checked against (269 real meshes). <https://github.com/BadDogSkyrim/PyNifly>
 

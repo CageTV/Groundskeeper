@@ -11,8 +11,7 @@
 // information needed. The user's explicit direction: "do it right" - real
 // collision geometry, not another heuristic.
 //
-// ARCHITECTURE: NIF/Havok reading lives in NifCollisionReader.cs (niflysharp, the C# bindings of the nifly library, plus a raw decode of the
-// compressed-mesh block). It was validated triangle-for-triangle against the earlier PyNifly-based extractor on 269 real NIFs
+// ARCHITECTURE: NIF/Havok reading lives in NifCollisionReader.cs (the pure-C# Nifly library). It was validated triangle-for-triangle against the earlier PyNifly-based extractor on 269 real NIFs
 // (compressed mesh, box, convex vertices, list and transform shapes; worst difference 0.05 units, i.e. float rounding), which is why the
 // Python and PyNifly dependency is gone. This file does only the transform + raycast math, where the rest of this tool's placement
 // logic already lives.
@@ -54,8 +53,7 @@ public record ExtractedCollision(bool Ok, string? Reason, List<Tri3> LocalTriang
 
 public static class CollisionRaycaster
 {
-    // Reads the real Havok collision of every unique NIF in-process (NifCollisionReader: niflysharp + a raw decode of the
-    // compressed-mesh block). Cached by PATH, never by placed instance: the same handful of rock/architecture meshes are
+    // Reads the real Havok collision of every unique NIF in-process (NifCollisionReader, on the pure-C# Nifly library). Cached by PATH, never by placed instance: the same handful of rock/architecture meshes are
     // reused by hundreds of placed instances across the world, which is what keeps this practical at the scale
     // FindCandidates already operates at (100k+ placed objects checked). One bad or collision-less NIF never affects the
     // others: every path gets its own Ok/Reason result.
