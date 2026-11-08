@@ -95,10 +95,10 @@
                                     <ColumnDefinition Width="*"/>
                                 </Grid.ColumnDefinitions>
                                 <TextBlock Text="Plugin name:"/>
-                                <TextBox Grid.Column="1" x:Name="PluginNameBox" Text="LandscapeTerrain.esp"/>
+                                <TextBox Grid.Column="1" x:Name="PluginNameBox" Text="Groundskeeper.esp"/>
                             </Grid>
                             <TextBlock Style="{StaticResource Hint}" Margin="0,4,0,0" TextWrapping="Wrap">
-                                Use a dedicated folder, e.g. a "Groundskeeper Output" mod folder. Only this tool's own plugin names in it are ever replaced.
+                                In Mod Organizer 2, leave this empty and a "Groundskeeper Output" mod folder is created in your mods folder for you. Otherwise use a dedicated folder. Only this tool's own plugin names in it are ever replaced.
                             </TextBlock>
                         </StackPanel>
                     </GroupBox>
@@ -110,6 +110,18 @@
                             <CheckBox x:Name="FloatingCheck" Content="Floating objects: re-ground floating and sunken references"/>
                             <CheckBox x:Name="NeighborsCheck" Content="Match neighbouring cells to the trusted terrain chain"/>
                             <CheckBox x:Name="NorthernCheck" Content="Trust Northern Roads terrain as a source"/>
+                            <CheckBox x:Name="VanaheimrCheck" Content="Trust Northern Vanaheimr Roads terrain as a source (main plugin and patches)"/>
+                        </StackPanel>
+                    </GroupBox>
+
+                    <GroupBox Header="PREFERRED ROAD MOD">
+                        <StackPanel>
+                            <TextBlock Style="{StaticResource Hint}" TextWrapping="Wrap" Margin="0,0,0,6">
+                                Pick the road mod whose terrain should win wherever it conflicts with other mods. This is only for road mods that
+                                EDIT THE LANDSCAPE (they reshape the terrain heights). Road mods that only change textures do not count here.
+                                Its own patches rank above it. The list fills in when you scan.
+                            </TextBlock>
+                            <ComboBox x:Name="PreferredRoadCombo" Margin="0,3,4,3"/>
                         </StackPanel>
                     </GroupBox>
 

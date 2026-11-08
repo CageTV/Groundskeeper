@@ -20,7 +20,7 @@ public sealed class HybridSettings
     /// Direct/Vortex: the game's install or Data folder, empty = detect.</summary>
     public string GameDataPath { get; set; } = "";
     public string OutputDirectory { get; set; } = "";
-    public string OutputPluginName { get; set; } = "LandscapeTerrain.esp";
+    public string OutputPluginName { get; set; } = "Groundskeeper.esp";
 
     public bool Seams { get; set; } = true;
     public bool TextureLayers { get; set; } = true;
@@ -31,6 +31,11 @@ public sealed class HybridSettings
     public string RoadMaskFolder { get; set; } = "";
     public string RoadWorldspace { get; set; } = "Tamriel";
     public bool TrustNorthernRoads { get; set; }
+    /// <summary>Trust Northern Vanaheimr Roads (Northern_Vanaheimr_Roads.esp and its patches) as a terrain source: its terrain is kept.</summary>
+    public bool TrustVanaheimrRoads { get; set; }
+    /// <summary>The preferred road mod: a road mod that EDITS THE LANDSCAPE. Its terrain wins wherever it conflicts, ahead of every other
+    /// mod (its own patches rank above it, as patches always do). Road mods that only change textures do not count. Empty = none.</summary>
+    public string PreferredRoadMod { get; set; } = "";
     public bool MatchNeighborsToTrustedChain { get; set; }
     /// <summary>Plugins whose terrain/water edits the user chose to REVERT to the trusted data below them.
     /// Every other plugin that overwrites trusted terrain or water is kept (treated as trusted). Default: none.</summary>
@@ -56,7 +61,7 @@ public sealed record RevertCandidate(string Plugin, int Cells, int MaxUnits, str
 
 /// <param name="WaterModChoices">Plugins in the load order that look like water mods (known names, or "water" in the name).</param>
 public sealed record TerrainPlan(IReadOnlyList<RevertCandidate> Candidates, int SkippedWater, int SkippedReference,
-    IReadOnlyList<string> WaterModChoices);
+    IReadOnlyList<string> WaterModChoices, IReadOnlyList<string> RoadModChoices);
 
 /// <summary>
 /// One run: resolve the load order once (Mod Organizer 2, or the game's Data folder for Vortex and plain installs), run
@@ -76,9 +81,18 @@ public static class HybridRunner
 
     static readonly string[] KnownWaterMods = { "CS Water Mod.esp", "Water for ENB.esp", "RealisticWaterTwo.esp", "Simplicity of Sea.esp" };
 
+    /// <summary>Names an earlier version of this tool wrote its merged plugin under; still recognised as our own output.</summary>
+    static readonly string[] LegacyOutputNames = { "LandscapeTerrain.esp" };
+
     public static bool IsOwnOutput(string fileName, string mergedName)
     {
         if (PassPluginNames.Contains(fileName, StringComparer.OrdinalIgnoreCase)) return true;
+        foreach (var legacy in LegacyOutputNames)
+        {
+            var ls = Path.GetFileNameWithoutExtension(legacy);
+            var fs = Path.GetFileNameWithoutExtension(fileName);
+            if (fs.Equals(ls, StringComparison.OrdinalIgnoreCase) || Regex.IsMatch(fs, "^" + Regex.Escape(ls) + @"_\d+$", RegexOptions.IgnoreCase)) return true;
+        }
         var stem = Path.GetFileNameWithoutExtension(fileName);
         var mergedStem = Path.GetFileNameWithoutExtension(mergedName);
         return stem.Equals(mergedStem, StringComparison.OrdinalIgnoreCase)
@@ -147,12 +161,13 @@ public static class HybridRunner
         // Keeping a plugin makes it trusted, which can expose NEW overwriters of it (A overwrites trusted T; once A is kept,
         // B overwriting A shows up). Iterate until no new overwriter appears, so "nothing ticked" really means "nothing changes".
         var revert = new HashSet<string>(s.RevertPlugins, StringComparer.OrdinalIgnoreCase);
+        var winnersList = EffectiveWinners(s, baseOrder.Select(p => p.FileName));
         var found = new Dictionary<string, (int Cells, int Max, string To, List<string> Samples)>(StringComparer.OrdinalIgnoreCase);
         var water = new Dictionary<string, (int Cells, string To)>(StringComparer.OrdinalIgnoreCase);
         int skippedWater = 0, skippedRef = 0;
         for (var pass = 1; pass <= 8; pass++)
         {
-            var trusted = found.Keys.Where(k => !revert.Contains(k)).Concat(s.TerrainWinners).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+            var trusted = found.Keys.Where(k => !revert.Contains(k)).Concat(winnersList).Concat(TrustedFamilies(s)).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
             var staging = Path.Combine(Path.GetTempPath(), "GroundskeeperPlan-" + Guid.NewGuid().ToString("N"));
             Directory.CreateDirectory(staging);
             var lines = new List<string>();
@@ -160,7 +175,7 @@ public static class HybridRunner
             {
                 SeamFixer.GenerateFixPluginForResolvedPlugins(baseOrder, "LandscapeSeamPlan.esp", staging,
                     m => lines.Add(m), s.TrustNorthernRoads, waterTrust: WaterOptions(s), customTrustedPlugins: trusted,
-                    priorityOverNorthernRoadsPlugins: s.TerrainWinners);
+                    priorityOverNorthernRoadsPlugins: winnersList);
             }
             finally { try { Directory.Delete(staging, recursive: true); } catch { /* scratch in %TEMP% */ } }
 
@@ -203,7 +218,7 @@ public static class HybridRunner
             }
             if (added == 0) break;
         }
-        var winners = new HashSet<string>(s.TerrainWinners, StringComparer.OrdinalIgnoreCase);
+        var winners = new HashSet<string>(winnersList, StringComparer.OrdinalIgnoreCase);
         var list = found.Where(kv => !winners.Contains(kv.Key)).Select(kv =>
             {
                 water.TryGetValue(kv.Key, out var w);
@@ -216,7 +231,11 @@ public static class HybridRunner
         var waterChoices = KnownWaterMods.Where(k => present.Contains(k, StringComparer.OrdinalIgnoreCase))
             .Concat(present.Where(n => n.Contains("water", StringComparison.OrdinalIgnoreCase)))
             .Distinct(StringComparer.OrdinalIgnoreCase).ToList();
-        return new TerrainPlan(list, skippedWater, skippedRef, waterChoices);
+        var knownRoad = new[] { "Northern Roads.esp", "Northern_Vanaheimr_Roads.esp" };
+        var roadChoices = knownRoad.Where(k => present.Contains(k, StringComparer.OrdinalIgnoreCase))
+            .Concat(present.Where(n => n.Contains("road", StringComparison.OrdinalIgnoreCase) && !n.Contains(" - ") && !HybridRunner.IsOwnOutput(n, s.OutputPluginName)))
+            .Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        return new TerrainPlan(list, skippedWater, skippedRef, waterChoices, roadChoices);
     }
 
     /// <summary>Read-only: lists neighbouring cells whose water disagrees where the shared edge is below the water plane (candidate
@@ -248,12 +267,43 @@ public static class HybridRunner
         return $"Problem: no road images in '{maskFolder}' for worldspace '{ws}'. Pick the folder that contains 'Roads' and 'Paths Only' (each with a '{ws}' folder of .png tiles).";
     }
 
+    /// <summary>The terrain winners actually used: the preferred road mod's family first (its patches above it, later-loaded patch
+    /// first), then the user's own winners. Names only; a plugin not in the load order is simply ignored by the passes.</summary>
+    static List<string> EffectiveWinners(HybridSettings s, IEnumerable<string> loadOrderNames)
+    {
+        var result = new List<string>();
+        if (!string.IsNullOrWhiteSpace(s.PreferredRoadMod))
+        {
+            var pref = s.PreferredRoadMod.Trim();
+            var stem = Path.GetFileNameWithoutExtension(pref);
+            var order = loadOrderNames.ToList();
+            var patches = order.Where(n => n.StartsWith(stem + " -", StringComparison.OrdinalIgnoreCase) && !n.Equals(pref, StringComparison.OrdinalIgnoreCase))
+                               .Reverse(); // later in the load order = higher
+            result.AddRange(patches);
+            result.Add(pref);
+        }
+        foreach (var w in s.TerrainWinners)
+            if (!result.Contains(w, StringComparer.OrdinalIgnoreCase)) result.Add(w);
+        return result;
+    }
+
+    /// <summary>Plugin-name patterns trusted as terrain sources by the Passes checkboxes (a trailing * trusts a whole family).</summary>
+    static IEnumerable<string> TrustedFamilies(HybridSettings s)
+    {
+        if (s.TrustVanaheimrRoads) yield return "Northern_Vanaheimr_Roads*";
+    }
+
     static WaterTrustOptions WaterOptions(HybridSettings s) =>
         s.WaterMods.Count == 0 ? WaterTrustOptions.None : new WaterTrustOptions(CustomWaterMods: s.WaterMods.ToList());
 
     public static HybridResult Run(HybridSettings s, Action<string> log)
     {
         var notes = new List<string>();
+        if (string.IsNullOrWhiteSpace(s.OutputDirectory) && s.ModManager == ModManager.ModOrganizer2 && s.Mo2InstancePath.Length > 0)
+        {
+            s.OutputDirectory = Mo2InstanceFinder.DefaultOutputFolder(s.Mo2InstancePath);
+            log($"No output folder chosen: using the mod folder {s.OutputDirectory} (created if it does not exist; refresh MO2 to see it).");
+        }
         if (!s.DryRun)
         {
             // Generate writes into the output folder: refuse the game's own Data folder or anything that looks like it.
@@ -273,12 +323,13 @@ public static class HybridRunner
 
         // Trust: a plugin that overwrites trusted terrain or water is KEPT (trusted) unless the user ticked it for revert.
         var customTrusted = new List<string>();
+        var winnersList = EffectiveWinners(s, baseOrder.Select(p => p.FileName));
         if (s.Seams || s.TextureLayers)
         {
             var plan = PlanFrom(baseOrder, s, log);
             var revert = new HashSet<string>(s.RevertPlugins, StringComparer.OrdinalIgnoreCase);
-            customTrusted = plan.Candidates.Select(c => c.Plugin).Where(p => !revert.Contains(p)).Concat(s.TerrainWinners).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
-            if (s.TerrainWinners.Count > 0) log($"Terrain winners, highest first: {string.Join(" > ", s.TerrainWinners)}.");
+            customTrusted = plan.Candidates.Select(c => c.Plugin).Where(p => !revert.Contains(p)).Concat(winnersList).Concat(TrustedFamilies(s)).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+            if (winnersList.Count > 0) log($"Terrain winners, highest first: {string.Join(" > ", winnersList)}.");
             var reverting = plan.Candidates.Where(c => revert.Contains(c.Plugin)).ToList();
             log($"Keeping {customTrusted.Count} plugin(s); reverting {reverting.Count} ({reverting.Sum(c => c.Cells)} terrain, {reverting.Sum(c => c.WaterCells)} water cell(s)).");
             if (reverting.Count == 0)
@@ -316,7 +367,7 @@ public static class HybridRunner
             {
                 var r = SeamFixer.GenerateFixPluginForResolvedPlugins(baseOrder, "LandscapeSeamFixes.esp", staging, log,
                     s.TrustNorthernRoads, waterTrust: WaterOptions(s), customTrustedPlugins: customTrusted,
-                    priorityOverNorthernRoadsPlugins: s.TerrainWinners);
+                    priorityOverNorthernRoadsPlugins: winnersList);
                 seam = r.CellsPatched; return r.OutputPath;
             });
             Pass("Texture layers", s.TextureLayers, () =>

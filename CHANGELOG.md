@@ -21,4 +21,12 @@ Road Mask Merger, Floating Object Fixer and PatchForeman separately.
 - `--water-report`: read-only CSV of neighbouring cells whose water disagrees (candidate "random water squares"); no automatic fix yet.
 - Road inputs explained in the window (hint, Browse button, live check of the road mask folder); a wrong folder skips the
   road pass with a clear message instead of failing. ACMOS Road Generator credited; its images are not bundled.
+- The merged plugin is now `Groundskeeper.esp` (earlier test builds wrote `LandscapeTerrain.esp`; that name is still recognised as
+  this tool's own output and replaced).
+- MO2: the instance and profile are detected when started from MO2, the output defaults to a "Groundskeeper Output" mod folder in the MO2 mods folder (created
+  on Generate), and settings are kept per instance.
+- Passes: trust Northern Vanaheimr Roads (main plugin and patches) as a terrain source; new Preferred road mod (for road mods that edit the landscape).
+- Window: in the conflict list the Make winner button now comes before the tick, rows have the name in bold with the numbers on a second line and
+  alternating shading, and the arrow buttons of the winners and water lists are at the left.
+- `GROUNDSKEEPER_CONFIG` selects a different settings file.
 - Tests: `TerrainEditCheck`, `TerrainPriorityCheck`, `PlacedChildDeduperCheck`, `CollisionCheck`.

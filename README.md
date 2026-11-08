@@ -25,7 +25,7 @@ should win? The old tools answered it with a built-in trust list and then silent
    changes at all.
 3. **Choose winners.** Put mods in an ordered list and the highest one wins wherever they conflict,
    instead of whichever loads last.
-4. **Generate.** One plugin, `LandscapeTerrain.esp` by default, split automatically if a plugin
+4. **Generate.** One plugin, `Groundskeeper.esp` by default, split automatically if a plugin
    would pass the 255-master limit and flagged ESL when it fits.
 
 ## What it does
@@ -36,6 +36,7 @@ should win? The old tools answered it with a built-in trust list and then silent
 | **Texture layers** | Adds a small blend hint where neighbouring cells show a hard texture boundary. Optional; review these in game. |
 | **Roads** | Reconciles a road mod's terrain with the rest. Runs only if you name a road source plugin **and** give it the road images from [ACMOS Road Generator](https://www.nexusmods.com/skyrimspecialedition/mods/79205) (not included; see below). Untested on real data so far. |
 | **Floating objects** | Re-grounds floating or sunken placed references, checking each against the real Havok collision of nearby meshes, read in-process (no Python needed). Off by default, and it flags many references, so read the log. |
+| **Preferred road mod** | Pick one road mod that **edits the landscape** (reshapes terrain heights, like Northern Roads or Northern Vanaheimr Roads): its terrain wins wherever it conflicts, and its own patches rank above it. Road mods that only change textures do not count. |
 | **Terrain winners** | You set the order of conflicting mods; the highest wins. Written through the same safety checks as the seam pass. |
 | **Water mods** | Protects the water mods you tick (CS Water Mod, Water for ENB, RealisticWaterTwo, Simplicity of Sea and anything else with "water" in its name). Wherever another plugin overwrote one, its water is restored. The list is in priority order: first wins. |
 | **Water seam report** | Read-only (command line, `--water-report`). Lists neighbouring cells whose water height, type or presence disagrees where the shared edge is below the water, as a CSV with the winning plugin of each cell. Rivers and waterfalls legitimately step between cells, so these are candidates to check in game, not a fix. |
@@ -76,12 +77,15 @@ There is no packaged release yet: build from source (see below) and run `Grounds
      Started from MO2's executables list it is meant to find the instance by itself (untested).
    - **Vortex or a plain install:** it reads the game's `Data` folder and plugin list. Leave the
      game folder empty to find it from the registry, or pick it.
-2. **Pick an output folder.** Use a dedicated folder, for example a "Groundskeeper Output" mod
-   folder. Only this tool's own plugin names in it are ever replaced; nothing else is deleted.
+2. **Output folder.** In Mod Organizer 2 you can leave it empty: Groundskeeper uses (and creates, when it
+   generates) a "Groundskeeper Output" mod folder in your MO2 mods folder, like Landscape Fixer does with its own,
+   and fills in the MO2 instance and profile itself when started from MO2. Refresh MO2 to see the new mod. With
+   Vortex or a plain install pick a dedicated folder. Only this tool's own plugin names in it are ever replaced;
+   nothing else is deleted.
 3. Press **Scan for terrain conflicts**. Tick the mods whose terrain or water should be reverted,
    use **Make winner** on mods that should win, and tick the water mods to protect.
 4. Press **Preview** first. It runs everything and writes nothing. Then **Generate**.
-5. Enable `LandscapeTerrain.esp` (and any `_2`, `_3` files, adjacent in load order) after your
+5. Enable `Groundskeeper.esp` (and any `_2`, `_3` files, adjacent in load order) after your
    landscape mods.
 
 ### Command line
@@ -97,8 +101,9 @@ GroundskeeperCli --direct [--game=<install or Data folder>] --output=<folder> [o
   --water-mod=<plugin>       protect that water mod, first = highest priority (repeatable)
   --no-seams  --no-textures  --floating  --floating-threshold=96  --floating-worldspace=Tamriel
   --road-plugin=<esp>  --road-masks=<folder>   (ACMOS Road Generator's road images; see "Roads")
-  --trust-northern-roads  --match-neighbors
-  --name=LandscapeTerrain.esp
+  --trust-northern-roads  --trust-vanaheimr-roads  --match-neighbors
+  --preferred-road=<plugin>  a road mod that edits the landscape: its terrain wins conflicts
+  --name=Groundskeeper.esp
   --write                    write the plugin (the default is a dry run)
 ```
 
@@ -108,7 +113,9 @@ GroundskeeperCli --direct [--game=<install or Data folder>] --output=<folder> [o
 - It never edits an existing plugin. It writes a new one.
 - Generate refuses an output folder that is, or looks like, the game's `Data` folder or install.
 - It never changes your load order or your mod manager's files.
-- Your own settings are kept in `%APPDATA%\Groundskeeper\settings.json`.
+- Your own settings are kept in `%APPDATA%\Groundskeeper` (one file per MO2 instance when started from MO2, otherwise
+  `settings.json`). Set the `GROUNDSKEEPER_CONFIG` environment variable to a file path to use a different settings
+  file, for example for tests.
 
 ## Known limits
 

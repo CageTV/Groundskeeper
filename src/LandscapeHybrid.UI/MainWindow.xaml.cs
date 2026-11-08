@@ -9,12 +9,27 @@ namespace LandscapeHybrid.UI;
 
 public partial class MainWindow : Window
 {
-    static readonly string SettingsPath = Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "Groundskeeper", "settings.json");
+    // The MO2 instance this copy was started from, if any: it picks the settings file (one per instance, like a modlist of its own).
+    readonly Mo2InstanceInfo? _detected = Mo2InstanceFinder.Detect();
+    string? _lastDefaultOutput;
+
+    string SettingsPath
+    {
+        get
+        {
+            // GROUNDSKEEPER_CONFIG names a settings file to use instead of the usual one (tests, or several setups side by side)
+            if (Environment.GetEnvironmentVariable("GROUNDSKEEPER_CONFIG") is { Length: > 0 } custom) return custom;
+            var root = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "Groundskeeper");
+            if (_detected is null) return Path.Combine(root, "settings.json");
+            var name = string.Concat(_detected.Name.Select(c => Path.GetInvalidFileNameChars().Contains(c) ? '_' : c));
+            return Path.Combine(root, "instances", name + ".json");
+        }
+    }
 
     bool _loading = true;
     bool _busy;
     string? _savedProfile;
+    string _preferredRoad = "";
     HashSet<string> _revert = new(StringComparer.OrdinalIgnoreCase);
     List<string> _winners = new();
     // water mods in priority order; the ticked ones are the protected set
@@ -28,6 +43,8 @@ public partial class MainWindow : Window
         _loading = false;
         ApplyMode();
         RefreshProfiles(null);
+        UpdateDefaultOutput();
+        RebuildPreferredRoad(Array.Empty<string>());
         RebuildWaterList();
         RebuildWinnersList();
         Closing += (_, _) => Save();
@@ -45,17 +62,20 @@ public partial class MainWindow : Window
         }
         catch { /* a broken settings file just means defaults */ }
 
-        if (string.IsNullOrWhiteSpace(s.Mo2InstancePath)) s.Mo2InstancePath = DetectInstanceFromExePath() ?? "";
+        if (string.IsNullOrWhiteSpace(s.Mo2InstancePath) && _detected is not null) s.Mo2InstancePath = _detected.Path;
+        if (string.IsNullOrWhiteSpace(s.Mo2Profile) && _detected is not null) s.Mo2Profile = _detected.SelectedProfile;
         if (s.ModManager == ModManager.ModOrganizer2) ModeMo2.IsChecked = true; else ModeDirect.IsChecked = true;
         InstanceBox.Text = s.Mo2InstancePath;
         GameBox.Text = s.GameDataPath;
         OutputBox.Text = s.OutputDirectory;
-        PluginNameBox.Text = string.IsNullOrWhiteSpace(s.OutputPluginName) ? "LandscapeTerrain.esp" : s.OutputPluginName;
+        PluginNameBox.Text = string.IsNullOrWhiteSpace(s.OutputPluginName) || s.OutputPluginName.Equals("LandscapeTerrain.esp", StringComparison.OrdinalIgnoreCase) ? "Groundskeeper.esp" : s.OutputPluginName;
         SeamsCheck.IsChecked = s.Seams;
         TexturesCheck.IsChecked = s.TextureLayers;
         FloatingCheck.IsChecked = s.Floating;
         NeighborsCheck.IsChecked = s.MatchNeighborsToTrustedChain;
         NorthernCheck.IsChecked = s.TrustNorthernRoads;
+        VanaheimrCheck.IsChecked = s.TrustVanaheimrRoads;
+        _preferredRoad = s.PreferredRoadMod;
         RoadPluginBox.Text = s.RoadSourcePlugin;
         RoadMasksBox.Text = s.RoadMaskFolder;
         RoadWorldspaceBox.Text = string.IsNullOrWhiteSpace(s.RoadWorldspace) ? "Tamriel" : s.RoadWorldspace;
@@ -81,6 +101,8 @@ public partial class MainWindow : Window
         Floating = FloatingCheck.IsChecked == true,
         MatchNeighborsToTrustedChain = NeighborsCheck.IsChecked == true,
         TrustNorthernRoads = NorthernCheck.IsChecked == true,
+        TrustVanaheimrRoads = VanaheimrCheck.IsChecked == true,
+        PreferredRoadMod = PreferredRoadCombo.SelectedItem is string pr && pr != NoPreferredRoad ? pr : "",
         RoadSourcePlugin = RoadPluginBox.Text.Trim(),
         RoadMaskFolder = RoadMasksBox.Text.Trim(),
         RoadWorldspace = RoadWorldspaceBox.Text.Trim(),
@@ -100,24 +122,13 @@ public partial class MainWindow : Window
         catch { /* not worth interrupting the user */ }
     }
 
-    // Started from MO2's executables list the exe lives inside (or next to) the instance: walk up to ModOrganizer.ini.
-    static string? DetectInstanceFromExePath()
-    {
-        try
-        {
-            for (var d = new DirectoryInfo(AppContext.BaseDirectory); d != null; d = d.Parent)
-                if (File.Exists(Path.Combine(d.FullName, "ModOrganizer.ini"))) return d.FullName;
-        }
-        catch { }
-        return null;
-    }
-
     // ---- setup ----
 
     void Mode_Checked(object sender, RoutedEventArgs e)
     {
         if (_loading) return;
         ApplyMode();
+        UpdateDefaultOutput();
         // a scan belongs to one load order: drop the old list when the mod manager changes
         ConflictList.Children.Clear(); ScanSummary.Text = ""; _revert.Clear();
     }
@@ -134,7 +145,22 @@ public partial class MainWindow : Window
 
     void InstanceBox_TextChanged(object sender, TextChangedEventArgs e)
     {
-        if (!_loading) RefreshProfiles(ProfileCombo.SelectedItem as string);
+        if (_loading) return;
+        RefreshProfiles(ProfileCombo.SelectedItem as string);
+        UpdateDefaultOutput();
+    }
+
+    // MO2 mode: an empty output box (or one still holding the previous default) gets <instance mods folder>\Groundskeeper Output,
+    // the same idea as Landscape Fixer's "LandscapeFixer Output" mod folder. The folder itself is created when Generate runs.
+    void UpdateDefaultOutput()
+    {
+        if (ModeDirect.IsChecked == true) return;
+        var inst = InstanceBox.Text.Trim();
+        if (inst.Length == 0 || !File.Exists(Path.Combine(inst, "ModOrganizer.ini"))) return;
+        var def = Mo2InstanceFinder.DefaultOutputFolder(inst);
+        var current = OutputBox.Text.Trim();
+        if (current.Length == 0 || current.Equals(_lastDefaultOutput, StringComparison.OrdinalIgnoreCase)) OutputBox.Text = def;
+        _lastDefaultOutput = def;
     }
 
     void RefreshProfiles(string? keep)
@@ -190,27 +216,49 @@ public partial class MainWindow : Window
         {
             var plan = await Task.Run(() => HybridRunner.Plan(s, Log));
             ConflictList.Children.Clear();
+            _conflictBoxes.Clear();
+            var rowIndex = 0;
             foreach (var c in plan.Candidates)
             {
                 var what = new List<string>();
                 if (c.Cells > 0) what.Add($"terrain {c.Cells} cell(s), up to {c.MaxUnits} units, reverts to {c.RestoresTo}");
                 if (c.WaterCells > 0) what.Add($"water {c.WaterCells} cell(s), reverts to {c.WaterRestoresTo}");
+
+                // two lines in one TextBlock: the name in bold, the numbers underneath, so a long list scans easily.
+                // (TextBlock content, not a string: WPF would eat "_" in a plain string as an access key.)
+                var label = new TextBlock { TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0) };
+                label.Inlines.Add(new System.Windows.Documents.Run(c.Plugin) { FontWeight = FontWeights.SemiBold });
+                label.Inlines.Add(new System.Windows.Documents.LineBreak());
+                label.Inlines.Add(new System.Windows.Documents.Run(string.Join("; ", what)) { Foreground = (System.Windows.Media.Brush)FindResource("Muted"), FontSize = 12 });
                 var cb = new CheckBox
                 {
                     Tag = c.Plugin,
                     IsChecked = _revert.Contains(c.Plugin),
-                    Content = new TextBlock { Text = $"{c.Plugin}  -  {string.Join("; ", what)}", Margin = new Thickness(0), TextWrapping = TextWrapping.Wrap }, // TextBlock: a plain string would eat "_" as an access key
+                    Content = label,
+                    VerticalContentAlignment = VerticalAlignment.Center,
                     ToolTip = (c.SampleCells.Count > 0 ? "Example cells: " + string.Join(", ", c.SampleCells) + ". " : "")
                               + "Tick to REVERT this mod's terrain and water in these cells; untick to keep it.",
                 };
                 cb.Checked += Revert_Changed; cb.Unchecked += Revert_Changed;
-                var win = new Button { Content = "Make winner", Padding = new Thickness(8, 1, 8, 1), Margin = new Thickness(8, 0, 0, 0), Tag = c.Plugin,
-                    ToolTip = "Put this mod in the winners list below: it will win where it conflicts, ahead of mods loaded after it." };
+                _conflictBoxes[c.Plugin] = cb;
+                // the action button comes FIRST (left), then the tick: the two are far apart so they are not mixed up
+                var win = new Button
+                {
+                    Content = "Make winner", Width = 112, Padding = new Thickness(6, 2, 6, 2), Margin = new Thickness(0, 0, 14, 0),
+                    VerticalAlignment = VerticalAlignment.Center, Tag = c.Plugin,
+                    ToolTip = "Put this mod in the winners list below: it will win where it conflicts, ahead of mods loaded after it.",
+                };
                 win.Click += (_, _) => AddWinner(c.Plugin);
-                var row = new DockPanel { LastChildFill = true };
-                DockPanel.SetDock(win, Dock.Right);
-                row.Children.Add(win); row.Children.Add(cb);
-                ConflictList.Children.Add(row);
+                var grid = new Grid();
+                grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+                grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+                Grid.SetColumn(win, 0); Grid.SetColumn(cb, 1);
+                grid.Children.Add(win); grid.Children.Add(cb);
+                ConflictList.Children.Add(new Border
+                {
+                    Child = grid, Padding = new Thickness(8, 6, 8, 6), Margin = new Thickness(0, 0, 0, 2), CornerRadius = new CornerRadius(4),
+                    Background = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromArgb((byte)(rowIndex++ % 2 == 0 ? 26 : 8), 255, 255, 255)),
+                });
             }
             // a saved tick for a mod that no longer conflicts is dropped
             _revert.RemoveWhere(r => plan.Candidates.All(c => !c.Plugin.Equals(r, StringComparison.OrdinalIgnoreCase)));
@@ -219,6 +267,7 @@ public partial class MainWindow : Window
                 : $"{plan.Candidates.Count} mod(s) overwrite trusted terrain ({plan.Candidates.Sum(c => c.Cells)} cells) or water ({plan.Candidates.Sum(c => c.WaterCells)} cells); {plan.SkippedWater} more terrain cells skipped for water, {plan.SkippedReference} for placed references. Tick only the ones you want reverted.";
 
             // water mods found in the load order join the priority list (ticked ones keep their place at the top)
+            RebuildPreferredRoad(plan.RoadModChoices);
             foreach (var w in plan.WaterModChoices)
                 if (!_waterOrder.Contains(w, StringComparer.OrdinalIgnoreCase)) _waterOrder.Add(w);
             RebuildWaterList();
@@ -231,12 +280,25 @@ public partial class MainWindow : Window
         }
     }
 
+    const string NoPreferredRoad = "(none)";
+    readonly Dictionary<string, CheckBox> _conflictBoxes = new(StringComparer.OrdinalIgnoreCase);
+
+    void RebuildPreferredRoad(IEnumerable<string> found)
+    {
+        var keep = PreferredRoadCombo.SelectedItem as string ?? (_preferredRoad.Length > 0 ? _preferredRoad : NoPreferredRoad);
+        var items = new List<string> { NoPreferredRoad };
+        foreach (var n in found.Concat(keep != NoPreferredRoad ? new[] { keep } : Array.Empty<string>()))
+            if (!items.Contains(n, StringComparer.OrdinalIgnoreCase)) items.Add(n);
+        PreferredRoadCombo.Items.Clear();
+        foreach (var i in items) PreferredRoadCombo.Items.Add(i);
+        PreferredRoadCombo.SelectedItem = items.FirstOrDefault(i => i.Equals(keep, StringComparison.OrdinalIgnoreCase)) ?? NoPreferredRoad;
+    }
+
     void AddWinner(string plugin)
     {
         if (!_winners.Contains(plugin, StringComparer.OrdinalIgnoreCase)) _winners.Add(plugin);
         _revert.Remove(plugin); // a winner is never reverted
-        foreach (var row in ConflictList.Children.OfType<DockPanel>())
-            if (row.Children.OfType<CheckBox>().FirstOrDefault() is { Tag: string t } cb && t.Equals(plugin, StringComparison.OrdinalIgnoreCase)) cb.IsChecked = false;
+        if (_conflictBoxes.TryGetValue(plugin, out var ticked)) ticked.IsChecked = false;
         RebuildWinnersList();
     }
 
@@ -251,15 +313,21 @@ public partial class MainWindow : Window
         for (var i = 0; i < _winners.Count; i++)
         {
             var name = _winners[i];
-            var row = new DockPanel { LastChildFill = true };
-            var remove = new Button { Content = "✕", Padding = new Thickness(6, 1, 6, 1), Margin = new Thickness(6, 0, 0, 0), ToolTip = "Remove from the winners list" };
-            var down = new Button { Content = "▼", Padding = new Thickness(6, 1, 6, 1), Margin = new Thickness(2, 0, 0, 0), ToolTip = "Lower priority", IsEnabled = i < _winners.Count - 1 };
-            var up = new Button { Content = "▲", Padding = new Thickness(6, 1, 6, 1), Margin = new Thickness(6, 0, 0, 0), ToolTip = "Higher priority", IsEnabled = i > 0 };
+            var row = new Grid { Margin = new Thickness(0, 0, 0, 3) };
+            row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            var remove = new Button { Content = "✕", Padding = new Thickness(6, 1, 6, 1), Margin = new Thickness(0, 0, 10, 0), ToolTip = "Remove from the winners list" };
+            var down = new Button { Content = "▼", Padding = new Thickness(6, 1, 6, 1), Margin = new Thickness(0, 0, 2, 0), ToolTip = "Lower priority", IsEnabled = i < _winners.Count - 1 };
+            var up = new Button { Content = "▲", Padding = new Thickness(6, 1, 6, 1), Margin = new Thickness(0, 0, 2, 0), ToolTip = "Higher priority", IsEnabled = i > 0 };
             up.Click += (_, _) => MoveWinner(name, -1);
             down.Click += (_, _) => MoveWinner(name, +1);
             remove.Click += (_, _) => { _winners.RemoveAll(w => w.Equals(name, StringComparison.OrdinalIgnoreCase)); RebuildWinnersList(); };
-            foreach (var b in new[] { remove, down, up }) { DockPanel.SetDock(b, Dock.Right); row.Children.Add(b); }
-            row.Children.Add(new TextBlock { Text = $"{i + 1}.  {name}", VerticalAlignment = VerticalAlignment.Center });
+            var buttons = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
+            buttons.Children.Add(up); buttons.Children.Add(down); buttons.Children.Add(remove);
+            Grid.SetColumn(buttons, 0);
+            var text = new TextBlock { Text = $"{i + 1}.  {name}", VerticalAlignment = VerticalAlignment.Center, TextWrapping = TextWrapping.Wrap };
+            Grid.SetColumn(text, 1);
+            row.Children.Add(buttons); row.Children.Add(text);
             WinnersList.Children.Add(row);
         }
     }
@@ -290,17 +358,21 @@ public partial class MainWindow : Window
         for (var i = 0; i < _waterOrder.Count; i++)
         {
             var name = _waterOrder[i];
-            var row = new DockPanel { LastChildFill = true };
-            var down = new Button { Content = "▼", Padding = new Thickness(6, 1, 6, 1), Margin = new Thickness(2, 0, 0, 0), Tag = name, ToolTip = "Lower priority" };
-            var up = new Button { Content = "▲", Padding = new Thickness(6, 1, 6, 1), Margin = new Thickness(6, 0, 0, 0), Tag = name, ToolTip = "Higher priority" };
+            var row = new Grid { Margin = new Thickness(0, 0, 0, 3) };
+            row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+            var down = new Button { Content = "▼", Padding = new Thickness(6, 1, 6, 1), Margin = new Thickness(0, 0, 10, 0), Tag = name, ToolTip = "Lower priority" };
+            var up = new Button { Content = "▲", Padding = new Thickness(6, 1, 6, 1), Margin = new Thickness(0, 0, 2, 0), Tag = name, ToolTip = "Higher priority" };
             up.IsEnabled = i > 0; down.IsEnabled = i < _waterOrder.Count - 1;
             up.Click += (_, _) => MoveWater(name, -1);
             down.Click += (_, _) => MoveWater(name, +1);
-            DockPanel.SetDock(down, Dock.Right); DockPanel.SetDock(up, Dock.Right);
-            row.Children.Add(down); row.Children.Add(up);
-            var cb = new CheckBox { Content = new TextBlock { Text = $"{i + 1}.  {name}", Margin = new Thickness(0) }, IsChecked = _waterTicked.Contains(name), Tag = name };
+            var arrows = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
+            arrows.Children.Add(up); arrows.Children.Add(down);
+            Grid.SetColumn(arrows, 0);
+            var cb = new CheckBox { Content = new TextBlock { Text = $"{i + 1}.  {name}", Margin = new Thickness(0), TextWrapping = TextWrapping.Wrap }, IsChecked = _waterTicked.Contains(name), Tag = name, VerticalContentAlignment = VerticalAlignment.Center };
             cb.Checked += Water_Changed; cb.Unchecked += Water_Changed;
-            row.Children.Add(cb);
+            Grid.SetColumn(cb, 1);
+            row.Children.Add(arrows); row.Children.Add(cb);
             WaterList.Children.Add(row);
         }
     }
@@ -329,7 +401,7 @@ public partial class MainWindow : Window
             if (!File.Exists(Path.Combine(s.Mo2InstancePath, "ModOrganizer.ini"))) return "Pick your MO2 instance folder (the one holding ModOrganizer.ini).";
             if (s.Mo2Profile == "") return "Pick an MO2 profile.";
         }
-        if (needOutput && s.OutputDirectory == "") return "Pick an output folder (a dedicated mod folder, not your Data folder).";
+        if (needOutput && s.OutputDirectory == "" && s.ModManager != ModManager.ModOrganizer2) return "Pick an output folder (a dedicated folder, not your Data folder).";
         if (needOutput && !s.OutputPluginName.EndsWith(".esp", StringComparison.OrdinalIgnoreCase)) return "The plugin name must end in .esp.";
         if (!s.Seams && !s.TextureLayers && !s.Floating && s.RoadSourcePlugin == "") return "Switch on at least one pass.";
         if (s.RoadSourcePlugin != "" && HybridRunner.CheckRoadInputs(s.RoadSourcePlugin, s.RoadMaskFolder, s.RoadWorldspace) is { } roadProblem && roadProblem.StartsWith("Problem")) return roadProblem;

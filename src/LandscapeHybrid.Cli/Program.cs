@@ -2,9 +2,10 @@ using LandscapeHybrid;
 
 // Mod Organizer 2:   GroundskeeperCli --mo2 <instance> <profile> --output=<folder> [options]
 // Vortex / plain:    GroundskeeperCli --direct [--game=<install or Data folder>] --output=<folder> [options]
-//   options: [--name=LandscapeTerrain.esp] [--no-seams] [--no-textures] [--floating] [--floating-threshold=96]
+//   options: [--name=Groundskeeper.esp] [--no-seams] [--no-textures] [--floating] [--floating-threshold=96]
 //            [--floating-worldspace=Tamriel] [--road-plugin="Northern Roads.esp"] [--road-masks=<folder>]
-//            [--trust-northern-roads] [--match-neighbors]
+//            [--trust-northern-roads] [--trust-vanaheimr-roads] [--match-neighbors]
+//            [--preferred-road=<plugin>] a road mod that edits the landscape: its terrain wins conflicts (its patches rank above it)
 //            [--revert=<plugin>]...   revert that plugin's terrain/water (repeatable; default: nothing is reverted)
 //            [--water-mod=<plugin>]... protect that water mod, first = highest priority (repeatable)
 //            [--winner=<plugin>]...    terrain winners in your order, first = highest (repeatable)
@@ -21,7 +22,7 @@ var mo2 = args.Length >= 3 && args[0] == "--mo2";
 var direct = args.Length >= 1 && args[0] == "--direct";
 var planOnly = args.Contains("--plan");
 var waterReport = Arg(args, "--water-report");
-if ((!mo2 && !direct) || (Arg(args, "--output") is null && !planOnly && waterReport is null))
+if ((!mo2 && !direct) || (Arg(args, "--output") is null && !mo2 && !planOnly && waterReport is null))
 {
     Console.WriteLine("Usage:");
     Console.WriteLine("  GroundskeeperCli --mo2 <instance> <profile> --output=<folder> [options]");
@@ -38,7 +39,7 @@ var s = new HybridSettings
     Mo2InstancePath = mo2 ? args[1] : "", Mo2Profile = mo2 ? args[2] : "",
     GameDataPath = Arg(args, "--game") ?? "",
     OutputDirectory = Arg(args, "--output") ?? "",
-    OutputPluginName = Arg(args, "--name") ?? "LandscapeTerrain.esp",
+    OutputPluginName = Arg(args, "--name") ?? "Groundskeeper.esp",
     Seams = !args.Contains("--no-seams"),
     TextureLayers = !args.Contains("--no-textures"),
     Floating = args.Contains("--floating"),
@@ -47,6 +48,8 @@ var s = new HybridSettings
     RoadSourcePlugin = Arg(args, "--road-plugin") ?? "",
     RoadMaskFolder = Arg(args, "--road-masks") ?? "",
     TrustNorthernRoads = args.Contains("--trust-northern-roads"),
+    TrustVanaheimrRoads = args.Contains("--trust-vanaheimr-roads"),
+    PreferredRoadMod = Arg(args, "--preferred-road") ?? "",
     MatchNeighborsToTrustedChain = args.Contains("--match-neighbors"),
     RevertPlugins = Args(args, "--revert"),
     WaterMods = Args(args, "--water-mod"),
