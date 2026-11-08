@@ -1,28 +1,40 @@
 using LandscapeHybrid;
 
-// LandscapeHybrid --mo2 <instance> <profile> --output=<folder> [--game=<path>] [--name=LandscapeTerrain.esp]
-//   [--no-seams] [--no-textures] [--floating] [--floating-threshold=96] [--floating-worldspace=Tamriel]
-//   [--road-plugin="Northern Roads.esp"] [--road-masks=<folder>] [--trust-northern-roads]
-//   [--match-neighbors] [--write]
-// Default is a DRY RUN: every pass and the merge run, nothing is written to the output folder.
+// Mod Organizer 2:   LandscapeHybrid --mo2 <instance> <profile> --output=<folder> [options]
+// Vortex / plain:    LandscapeHybrid --direct [--game=<install or Data folder>] --output=<folder> [options]
+//   options: [--name=LandscapeTerrain.esp] [--no-seams] [--no-textures] [--floating] [--floating-threshold=96]
+//            [--floating-worldspace=Tamriel] [--road-plugin="Northern Roads.esp"] [--road-masks=<folder>]
+//            [--trust-northern-roads] [--match-neighbors]
+//            [--revert=<plugin>]...   revert that plugin's terrain/water (repeatable; default: nothing is reverted)
+//            [--water-mod=<plugin>]... protect that water mod, first = highest priority (repeatable)
+//            [--plan]                  only list the plugins that overwrite trusted terrain/water, then exit
+//            [--write]                 write the plugin (default is a dry run that writes nothing)
 
 static string? Arg(string[] a, string key) =>
     a.FirstOrDefault(x => x.StartsWith(key + "=", StringComparison.OrdinalIgnoreCase)) is { } v ? v[(key.Length + 1)..].Trim('"') : null;
+static List<string> Args(string[] a, string key) =>
+    a.Where(x => x.StartsWith(key + "=", StringComparison.OrdinalIgnoreCase)).Select(x => x[(key.Length + 1)..].Trim('"')).ToList();
 
-if (args.Length < 3 || args[0] != "--mo2" || Arg(args, "--output") is null)
+var mo2 = args.Length >= 3 && args[0] == "--mo2";
+var direct = args.Length >= 1 && args[0] == "--direct";
+var planOnly = args.Contains("--plan");
+if ((!mo2 && !direct) || (Arg(args, "--output") is null && !planOnly))
 {
-    Console.WriteLine("Usage: LandscapeHybrid --mo2 <instance> <profile> --output=<folder> [options] [--write]");
-    Console.WriteLine("  --game=<path> --name=LandscapeTerrain.esp --no-seams --no-textures --floating");
-    Console.WriteLine("  --floating-threshold=96 --floating-worldspace=Tamriel --road-plugin=<esp> --road-masks=<folder>");
-    Console.WriteLine("  --trust-northern-roads --match-neighbors   (dry run unless --write)");
+    Console.WriteLine("Usage:");
+    Console.WriteLine("  LandscapeHybrid --mo2 <instance> <profile> --output=<folder> [options]");
+    Console.WriteLine("  LandscapeHybrid --direct [--game=<install or Data folder>] --output=<folder> [options]   (Vortex or a plain install)");
+    Console.WriteLine("  options: --name= --no-seams --no-textures --floating --floating-threshold= --floating-worldspace=");
+    Console.WriteLine("           --road-plugin= --road-masks= --trust-northern-roads --match-neighbors");
+    Console.WriteLine("           --revert=<plugin> --water-mod=<plugin> --plan --write   (dry run unless --write)");
     return 2;
 }
 
 var s = new HybridSettings
 {
-    Mo2InstancePath = args[1], Mo2Profile = args[2],
+    ModManager = mo2 ? ModManager.ModOrganizer2 : ModManager.DirectOrVortex,
+    Mo2InstancePath = mo2 ? args[1] : "", Mo2Profile = mo2 ? args[2] : "",
     GameDataPath = Arg(args, "--game") ?? "",
-    OutputDirectory = Arg(args, "--output")!,
+    OutputDirectory = Arg(args, "--output") ?? "",
     OutputPluginName = Arg(args, "--name") ?? "LandscapeTerrain.esp",
     Seams = !args.Contains("--no-seams"),
     TextureLayers = !args.Contains("--no-textures"),
@@ -33,12 +45,23 @@ var s = new HybridSettings
     RoadMaskFolder = Arg(args, "--road-masks") ?? "",
     TrustNorthernRoads = args.Contains("--trust-northern-roads"),
     MatchNeighborsToTrustedChain = args.Contains("--match-neighbors"),
+    RevertPlugins = Args(args, "--revert"),
+    WaterMods = Args(args, "--water-mod"),
     DryRun = !args.Contains("--write"),
 };
 
-Console.WriteLine(s.DryRun ? "DRY RUN (pass --write to produce the plugin)" : "WRITE");
 try
 {
+    if (planOnly)
+    {
+        var plan = HybridRunner.Plan(s, Console.WriteLine);
+        Console.WriteLine();
+        foreach (var c in plan.Candidates)
+            Console.WriteLine($"{c.Plugin}: terrain {c.Cells} cell(s) up to {c.MaxUnits} units (-> {c.RestoresTo}); water {c.WaterCells} cell(s) (-> {c.WaterRestoresTo})");
+        Console.WriteLine("water mods found: " + string.Join(", ", plan.WaterModChoices));
+        return 0;
+    }
+    Console.WriteLine(s.DryRun ? "DRY RUN (pass --write to produce the plugin)" : "WRITE");
     var r = HybridRunner.Run(s, Console.WriteLine);
     Console.WriteLine();
     foreach (var n in r.Notes) Console.WriteLine("note: " + n);

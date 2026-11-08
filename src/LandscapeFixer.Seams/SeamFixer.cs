@@ -120,7 +120,8 @@ public static class SeamFixer
         bool trustNorthernRoads = false,
         WaterTrustOptions? waterTrust = null,
         IReadOnlyList<string>? customTrustedPlugins = null,
-        IReadOnlyList<string>? priorityOverNorthernRoadsPlugins = null)
+        IReadOnlyList<string>? priorityOverNorthernRoadsPlugins = null,
+        bool genuineWaterRestore = true)
     {
         var mergedFolder = Path.Combine(Path.GetTempPath(), "SeamFixerMerged-" + Guid.NewGuid().ToString("N"));
         log($"Staging {loadOrder.Count} plugin files into {mergedFolder} ...");
@@ -137,7 +138,7 @@ public static class SeamFixer
 
             var priorityIndex = modKeys.Select((k, idx) => (k, idx)).ToDictionary(x => x.k, x => x.idx);
             var mastersByPlugin = BuildMastersByPlugin(env.LoadOrder.ListedOrder);
-            return GenerateFixPluginCore(env.LinkCache, priorityIndex, mergedFolder, outputPluginName, outputDirectory, log, trustNorthernRoads, waterTrust ?? WaterTrustOptions.None, customTrustedPlugins ?? [], priorityOverNorthernRoadsPlugins ?? [], mastersByPlugin);
+            return GenerateFixPluginCore(env.LinkCache, priorityIndex, mergedFolder, outputPluginName, outputDirectory, log, trustNorthernRoads, waterTrust ?? WaterTrustOptions.None, customTrustedPlugins ?? [], priorityOverNorthernRoadsPlugins ?? [], mastersByPlugin, genuineWaterRestore);
         }
         finally
         {
@@ -174,7 +175,8 @@ public static class SeamFixer
         bool trustNorthernRoads = false,
         WaterTrustOptions? waterTrust = null,
         IReadOnlyList<string>? customTrustedPlugins = null,
-        IReadOnlyList<string>? priorityOverNorthernRoadsPlugins = null)
+        IReadOnlyList<string>? priorityOverNorthernRoadsPlugins = null,
+        bool genuineWaterRestore = true)
     {
         using var env = GameEnvironmentBuilder<ISkyrimMod, ISkyrimModGetter>
             .Create(GameRelease.SkyrimSE)
@@ -186,7 +188,7 @@ public static class SeamFixer
             .ToDictionary(x => x.ModKey, x => x.idx);
 
         var mastersByPlugin = BuildMastersByPlugin(env.LoadOrder.ListedOrder);
-        return GenerateFixPluginCore(env.LinkCache, priorityIndex, dataFolderPath, outputPluginName, outputDirectory, log, trustNorthernRoads, waterTrust ?? WaterTrustOptions.None, customTrustedPlugins ?? [], priorityOverNorthernRoadsPlugins ?? [], mastersByPlugin);
+        return GenerateFixPluginCore(env.LinkCache, priorityIndex, dataFolderPath, outputPluginName, outputDirectory, log, trustNorthernRoads, waterTrust ?? WaterTrustOptions.None, customTrustedPlugins ?? [], priorityOverNorthernRoadsPlugins ?? [], mastersByPlugin, genuineWaterRestore);
     }
 
     static SeamFixResult GenerateFixPluginCore(
@@ -200,7 +202,8 @@ public static class SeamFixer
         WaterTrustOptions waterTrust,
         IReadOnlyList<string> customTrustedPlugins,
         IReadOnlyList<string> priorityOverNorthernRoadsPlugins,
-        Dictionary<string, HashSet<string>> mastersByPlugin)
+        Dictionary<string, HashSet<string>> mastersByPlugin,
+        bool genuineWaterRestore = true)
     {
         TrustResolver.SetMastersContext(mastersByPlugin, outputPluginName);
         var outputModKey = ModKey.FromNameAndExtension(outputPluginName);
@@ -388,6 +391,9 @@ public static class SeamFixer
             var cell = context.Record;
             if (cell.Grid is null) continue;
 
+            if (!genuineWaterRestore) break; // hybrid: water is only restored for water mods the user ticked
+            // Only an UNTRUSTED winner can have 'lost' trusted water: a trusted plugin (official DLC, CC, patch) winning the cell is authoritative.
+            if (TrustResolver.IsBaseGamePlugin(context.ModKey.FileName, trustNorthernRoads, customTrustedPlugins)) continue;
             var genuineWater = ResolveGenuineTrustedWaterForCell(cell.FormKey, linkCache, priorityIndex, trustNorthernRoads, customTrustedPlugins);
             if (genuineWater is null) continue;
             if (context.ModKey.Equals(genuineWater.Value.OwnerModKey)) continue; // trusted source already wins this cell outright

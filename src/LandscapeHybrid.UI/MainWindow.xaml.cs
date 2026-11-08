@@ -14,13 +14,20 @@ public partial class MainWindow : Window
 
     bool _loading = true;
     bool _busy;
+    string? _savedProfile;
+    HashSet<string> _revert = new(StringComparer.OrdinalIgnoreCase);
+    // water mods in priority order; the ticked ones are the protected set
+    List<string> _waterOrder = new();
+    HashSet<string> _waterTicked = new(StringComparer.OrdinalIgnoreCase);
 
     public MainWindow()
     {
         InitializeComponent();
         Load();
         _loading = false;
+        ApplyMode();
         RefreshProfiles(null);
+        RebuildWaterList();
         Closing += (_, _) => Save();
     }
 
@@ -37,6 +44,7 @@ public partial class MainWindow : Window
         catch { /* a broken settings file just means defaults */ }
 
         if (string.IsNullOrWhiteSpace(s.Mo2InstancePath)) s.Mo2InstancePath = DetectInstanceFromExePath() ?? "";
+        if (s.ModManager == ModManager.ModOrganizer2) ModeMo2.IsChecked = true; else ModeDirect.IsChecked = true;
         InstanceBox.Text = s.Mo2InstancePath;
         GameBox.Text = s.GameDataPath;
         OutputBox.Text = s.OutputDirectory;
@@ -51,14 +59,14 @@ public partial class MainWindow : Window
         RoadWorldspaceBox.Text = string.IsNullOrWhiteSpace(s.RoadWorldspace) ? "Tamriel" : s.RoadWorldspace;
         _savedProfile = s.Mo2Profile;
         _revert = new HashSet<string>(s.RevertPlugins, StringComparer.OrdinalIgnoreCase);
+        _waterOrder = s.WaterMods.ToList();
+        _waterTicked = new HashSet<string>(s.WaterMods, StringComparer.OrdinalIgnoreCase);
         if (_revert.Count > 0) ScanSummary.Text = $"{_revert.Count} mod(s) ticked for revert from last time. Scan again to see current conflicts.";
     }
 
-    string? _savedProfile;
-    HashSet<string> _revert = new(StringComparer.OrdinalIgnoreCase);
-
     HybridSettings Collect(bool dryRun) => new()
     {
+        ModManager = ModeDirect.IsChecked == true ? ModManager.DirectOrVortex : ModManager.ModOrganizer2,
         Mo2InstancePath = InstanceBox.Text.Trim(),
         Mo2Profile = ProfileCombo.SelectedItem as string ?? "",
         GameDataPath = GameBox.Text.Trim(),
@@ -73,6 +81,7 @@ public partial class MainWindow : Window
         RoadMaskFolder = RoadMasksBox.Text.Trim(),
         RoadWorldspace = RoadWorldspaceBox.Text.Trim(),
         RevertPlugins = _revert.OrderBy(x => x).ToList(),
+        WaterMods = _waterOrder.Where(w => _waterTicked.Contains(w)).ToList(),
         DryRun = dryRun,
     };
 
@@ -100,6 +109,24 @@ public partial class MainWindow : Window
 
     // ---- setup ----
 
+    void Mode_Checked(object sender, RoutedEventArgs e)
+    {
+        if (_loading) return;
+        ApplyMode();
+        // a scan belongs to one load order: drop the old list when the mod manager changes
+        ConflictList.Children.Clear(); ScanSummary.Text = ""; _revert.Clear();
+    }
+
+    // MO2 needs an instance and a profile; Vortex / a plain install only needs the game folder.
+    void ApplyMode()
+    {
+        var mo2 = ModeDirect.IsChecked != true;
+        var v = mo2 ? Visibility.Visible : Visibility.Collapsed;
+        InstanceLabel.Visibility = InstanceBox.Visibility = InstanceBrowse.Visibility = v;
+        ProfileLabel.Visibility = ProfileCombo.Visibility = ProfileHint.Visibility = v;
+        GameLabel.Text = mo2 ? "Game folder (optional):" : "Game folder (optional):";
+    }
+
     void InstanceBox_TextChanged(object sender, TextChangedEventArgs e)
     {
         if (!_loading) RefreshProfiles(ProfileCombo.SelectedItem as string);
@@ -124,7 +151,7 @@ public partial class MainWindow : Window
     }
 
     void BrowseInstance_Click(object s, RoutedEventArgs e) { if (PickFolder("MO2 instance folder (contains ModOrganizer.ini)") is { } p) InstanceBox.Text = p; }
-    void BrowseGame_Click(object s, RoutedEventArgs e) { if (PickFolder("Skyrim install folder") is { } p) GameBox.Text = p; }
+    void BrowseGame_Click(object s, RoutedEventArgs e) { if (PickFolder("Skyrim install folder (or its Data folder)") is { } p) GameBox.Text = p; }
     void BrowseOutput_Click(object s, RoutedEventArgs e) { if (PickFolder("Output folder") is { } p) OutputBox.Text = p; }
 
     void OpenOutput_Click(object s, RoutedEventArgs e)
@@ -133,14 +160,14 @@ public partial class MainWindow : Window
         if (Directory.Exists(p)) Process.Start(new ProcessStartInfo("explorer.exe", $"\"{p}\"") { UseShellExecute = true });
     }
 
-    // ---- terrain conflicts ----
+    // ---- terrain / water conflicts ----
 
     async void Scan_Click(object sender, RoutedEventArgs e)
     {
         if (_busy) return;
         var s = Collect(true);
         if (Validate(s, false) is { } problem) { MessageBox.Show(this, problem, "Landscape Hybrid", MessageBoxButton.OK, MessageBoxImage.Information); return; }
-        SetBusy(true, "Scanning terrain conflicts...");
+        SetBusy(true, "Scanning terrain and water conflicts...");
         LogBox.Clear();
         void Log(string m) => Dispatcher.BeginInvoke(() => { LogBox.AppendText(m + Environment.NewLine); LogBox.ScrollToEnd(); });
         try
@@ -149,12 +176,16 @@ public partial class MainWindow : Window
             ConflictList.Children.Clear();
             foreach (var c in plan.Candidates)
             {
+                var what = new List<string>();
+                if (c.Cells > 0) what.Add($"terrain {c.Cells} cell(s), up to {c.MaxUnits} units, reverts to {c.RestoresTo}");
+                if (c.WaterCells > 0) what.Add($"water {c.WaterCells} cell(s), reverts to {c.WaterRestoresTo}");
                 var cb = new CheckBox
                 {
                     Tag = c.Plugin,
                     IsChecked = _revert.Contains(c.Plugin),
-                    Content = $"{c.Plugin}  -  {c.Cells} cell(s), up to {c.MaxUnits} units, reverts to {c.RestoresTo}",
-                    ToolTip = "Example cells: " + string.Join(", ", c.SampleCells) + ". Tick to REVERT this mod's terrain in these cells; untick to keep it.",
+                    Content = $"{c.Plugin}  -  {string.Join("; ", what)}",
+                    ToolTip = (c.SampleCells.Count > 0 ? "Example cells: " + string.Join(", ", c.SampleCells) + ". " : "")
+                              + "Tick to REVERT this mod's terrain and water in these cells; untick to keep it.",
                 };
                 cb.Checked += Revert_Changed; cb.Unchecked += Revert_Changed;
                 ConflictList.Children.Add(cb);
@@ -162,8 +193,13 @@ public partial class MainWindow : Window
             // a saved tick for a mod that no longer conflicts is dropped
             _revert.RemoveWhere(r => plan.Candidates.All(c => !c.Plugin.Equals(r, StringComparison.OrdinalIgnoreCase)));
             ScanSummary.Text = plan.Candidates.Count == 0
-                ? "No mod overwrites trusted terrain."
-                : $"{plan.Candidates.Count} mod(s) overwrite trusted terrain in {plan.Candidates.Sum(c => c.Cells)} cell(s) ({plan.SkippedWater} more skipped for water, {plan.SkippedReference} for placed references). Tick only the ones you want reverted.";
+                ? "No mod overwrites trusted terrain or water."
+                : $"{plan.Candidates.Count} mod(s) overwrite trusted terrain ({plan.Candidates.Sum(c => c.Cells)} cells) or water ({plan.Candidates.Sum(c => c.WaterCells)} cells); {plan.SkippedWater} more terrain cells skipped for water, {plan.SkippedReference} for placed references. Tick only the ones you want reverted.";
+
+            // water mods found in the load order join the priority list (ticked ones keep their place at the top)
+            foreach (var w in plan.WaterModChoices)
+                if (!_waterOrder.Contains(w, StringComparer.OrdinalIgnoreCase)) _waterOrder.Add(w);
+            RebuildWaterList();
             SetBusy(false, "Scan finished. Nothing was written.");
         }
         catch (Exception ex)
@@ -179,12 +215,56 @@ public partial class MainWindow : Window
         if (cb.IsChecked == true) _revert.Add(plugin); else _revert.Remove(plugin);
     }
 
+    void RebuildWaterList()
+    {
+        WaterList.Children.Clear();
+        if (_waterOrder.Count == 0)
+        {
+            WaterList.Children.Add(new TextBlock { Text = "Run the scan to list the water mods in your load order.", Style = (Style)FindResource("Hint") });
+            return;
+        }
+        for (var i = 0; i < _waterOrder.Count; i++)
+        {
+            var name = _waterOrder[i];
+            var row = new DockPanel { LastChildFill = true };
+            var down = new Button { Content = "▼", Padding = new Thickness(6, 1, 6, 1), Margin = new Thickness(2, 0, 0, 0), Tag = name, ToolTip = "Lower priority" };
+            var up = new Button { Content = "▲", Padding = new Thickness(6, 1, 6, 1), Margin = new Thickness(6, 0, 0, 0), Tag = name, ToolTip = "Higher priority" };
+            up.IsEnabled = i > 0; down.IsEnabled = i < _waterOrder.Count - 1;
+            up.Click += (_, _) => MoveWater(name, -1);
+            down.Click += (_, _) => MoveWater(name, +1);
+            DockPanel.SetDock(down, Dock.Right); DockPanel.SetDock(up, Dock.Right);
+            row.Children.Add(down); row.Children.Add(up);
+            var cb = new CheckBox { Content = $"{i + 1}.  {name}", IsChecked = _waterTicked.Contains(name), Tag = name };
+            cb.Checked += Water_Changed; cb.Unchecked += Water_Changed;
+            row.Children.Add(cb);
+            WaterList.Children.Add(row);
+        }
+    }
+
+    void MoveWater(string name, int delta)
+    {
+        var i = _waterOrder.FindIndex(w => w.Equals(name, StringComparison.OrdinalIgnoreCase));
+        var j = i + delta;
+        if (i < 0 || j < 0 || j >= _waterOrder.Count) return;
+        (_waterOrder[i], _waterOrder[j]) = (_waterOrder[j], _waterOrder[i]);
+        RebuildWaterList();
+    }
+
+    void Water_Changed(object sender, RoutedEventArgs e)
+    {
+        if (sender is not CheckBox { Tag: string name } cb) return;
+        if (cb.IsChecked == true) _waterTicked.Add(name); else _waterTicked.Remove(name);
+    }
+
     // ---- run ----
 
     string? Validate(HybridSettings s, bool needOutput)
     {
-        if (!File.Exists(Path.Combine(s.Mo2InstancePath, "ModOrganizer.ini"))) return "Pick your MO2 instance folder (the one holding ModOrganizer.ini).";
-        if (s.Mo2Profile == "") return "Pick an MO2 profile.";
+        if (s.ModManager == ModManager.ModOrganizer2)
+        {
+            if (!File.Exists(Path.Combine(s.Mo2InstancePath, "ModOrganizer.ini"))) return "Pick your MO2 instance folder (the one holding ModOrganizer.ini).";
+            if (s.Mo2Profile == "") return "Pick an MO2 profile.";
+        }
         if (needOutput && s.OutputDirectory == "") return "Pick an output folder (a dedicated mod folder, not your Data folder).";
         if (needOutput && !s.OutputPluginName.EndsWith(".esp", StringComparison.OrdinalIgnoreCase)) return "The plugin name must end in .esp.";
         if (!s.Seams && !s.TextureLayers && !s.Floating && s.RoadSourcePlugin == "") return "Switch on at least one pass.";

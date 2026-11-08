@@ -230,7 +230,13 @@ public static class TrustResolver
     // trusted base name - the actual membership test IsBaseGamePlugin uses
     // for the "ordinary" trusted pool (everything except Northern Roads,
     // which is opt-in/ambiguous and handled separately below).
+    // Creation Club content ships as cc*.esm / cc*.esl: official, so never an 'untrusted overwriter'.
+    public static bool IsCreationClubPlugin(string plugin) =>
+        plugin.StartsWith("cc", StringComparison.OrdinalIgnoreCase)
+        && (plugin.EndsWith(".esm", StringComparison.OrdinalIgnoreCase) || plugin.EndsWith(".esl", StringComparison.OrdinalIgnoreCase));
+
     public static bool IsTrustedBaseOrPatch(string plugin) =>
+        IsCreationClubPlugin(plugin) ||
         BaseGamePlugins.Any(b => plugin.Equals(b, StringComparison.OrdinalIgnoreCase) || IsPatchOfTrustedBase(plugin, b));
 
     // User-supplied additions to the trusted list - each entry is either an

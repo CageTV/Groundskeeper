@@ -47,28 +47,34 @@
 
             <ScrollViewer Grid.Column="0" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
                 <StackPanel Margin="0,0,6,0">
-                    <GroupBox Header="MOD ORGANIZER 2">
-                        <Grid>
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="Auto"/>
-                                <ColumnDefinition Width="*"/>
-                                <ColumnDefinition Width="Auto"/>
-                            </Grid.ColumnDefinitions>
-                            <Grid.RowDefinitions>
-                                <RowDefinition Height="Auto"/>
-                                <RowDefinition Height="Auto"/>
-                                <RowDefinition Height="Auto"/>
-                            </Grid.RowDefinitions>
-                            <TextBlock Grid.Row="0" Text="Instance folder:"/>
-                            <TextBox Grid.Row="0" Grid.Column="1" x:Name="InstanceBox" TextChanged="InstanceBox_TextChanged"/>
-                            <Button Grid.Row="0" Grid.Column="2" Content="Browse..." Click="BrowseInstance_Click"/>
-                            <TextBlock Grid.Row="1" Text="Profile:"/>
-                            <ComboBox Grid.Row="1" Grid.Column="1" x:Name="ProfileCombo" Margin="0,3,4,3"/>
-                            <TextBlock Grid.Row="1" Grid.Column="2" Text="(auto-listed)" Style="{StaticResource Hint}"/>
-                            <TextBlock Grid.Row="2" Text="Game folder (optional):" ToolTip="Left empty, the game folder is read from ModOrganizer.ini."/>
-                            <TextBox Grid.Row="2" Grid.Column="1" x:Name="GameBox"/>
-                            <Button Grid.Row="2" Grid.Column="2" Content="Browse..." Click="BrowseGame_Click"/>
-                        </Grid>
+                    <GroupBox Header="MOD MANAGER">
+                        <StackPanel>
+                            <WrapPanel>
+                                <RadioButton x:Name="ModeMo2" Content="Mod Organizer 2" GroupName="Mode" IsChecked="True" Checked="Mode_Checked" Margin="0,0,20,4"/>
+                                <RadioButton x:Name="ModeDirect" Content="Vortex or plain install (game Data folder)" GroupName="Mode" Checked="Mode_Checked" Margin="0,0,0,4"/>
+                            </WrapPanel>
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto"/>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto"/>
+                                    <RowDefinition Height="Auto"/>
+                                    <RowDefinition Height="Auto"/>
+                                </Grid.RowDefinitions>
+                                <TextBlock x:Name="InstanceLabel" Grid.Row="0" Text="Instance folder:"/>
+                                <TextBox Grid.Row="0" Grid.Column="1" x:Name="InstanceBox" TextChanged="InstanceBox_TextChanged"/>
+                                <Button x:Name="InstanceBrowse" Grid.Row="0" Grid.Column="2" Content="Browse..." Click="BrowseInstance_Click"/>
+                                <TextBlock x:Name="ProfileLabel" Grid.Row="1" Text="Profile:"/>
+                                <ComboBox Grid.Row="1" Grid.Column="1" x:Name="ProfileCombo" Margin="0,3,4,3"/>
+                                <TextBlock x:Name="ProfileHint" Grid.Row="1" Grid.Column="2" Text="(auto-listed)" Style="{StaticResource Hint}"/>
+                                <TextBlock x:Name="GameLabel" Grid.Row="2" Text="Game folder (optional):" ToolTip="MO2: left empty, read from ModOrganizer.ini. Vortex / plain: left empty, found from the registry."/>
+                                <TextBox Grid.Row="2" Grid.Column="1" x:Name="GameBox"/>
+                                <Button Grid.Row="2" Grid.Column="2" Content="Browse..." Click="BrowseGame_Click"/>
+                            </Grid>
+                        </StackPanel>
                     </GroupBox>
 
                     <GroupBox Header="OUTPUT">
@@ -116,6 +122,16 @@
                             <Button x:Name="ScanButton" Content="Scan for terrain conflicts" HorizontalAlignment="Left" Click="Scan_Click"/>
                             <TextBlock x:Name="ScanSummary" Style="{StaticResource Hint}" Margin="0,4,0,4" TextWrapping="Wrap"/>
                             <StackPanel x:Name="ConflictList"/>
+                        </StackPanel>
+                    </GroupBox>
+
+                    <GroupBox Header="WATER MODS TO PROTECT (FIRST = HIGHEST PRIORITY)">
+                        <StackPanel>
+                            <TextBlock Style="{StaticResource Hint}" TextWrapping="Wrap" Margin="0,0,0,6">
+                                Tick a water mod to restore its water wherever a later plugin overwrote it. When two ticked mods touch the same
+                                cell the one higher in the list wins; use the arrows to reorder. Filled in by the scan. Nothing ticked = no water protection.
+                            </TextBlock>
+                            <StackPanel x:Name="WaterList"/>
                         </StackPanel>
                     </GroupBox>
 
