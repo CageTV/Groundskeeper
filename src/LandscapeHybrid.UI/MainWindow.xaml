@@ -65,7 +65,7 @@
                             <TextBlock Grid.Row="1" Text="Profile:"/>
                             <ComboBox Grid.Row="1" Grid.Column="1" x:Name="ProfileCombo" Margin="0,3,4,3"/>
                             <TextBlock Grid.Row="1" Grid.Column="2" Text="(auto-listed)" Style="{StaticResource Hint}"/>
-                            <TextBlock Grid.Row="2" Text="Game folder:"/>
+                            <TextBlock Grid.Row="2" Text="Game folder (optional):" ToolTip="Left empty, the game folder is read from ModOrganizer.ini."/>
                             <TextBox Grid.Row="2" Grid.Column="1" x:Name="GameBox"/>
                             <Button Grid.Row="2" Grid.Column="2" Content="Browse..." Click="BrowseGame_Click"/>
                         </Grid>
