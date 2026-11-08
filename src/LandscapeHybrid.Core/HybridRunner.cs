@@ -464,6 +464,24 @@ public static partial class HybridRunner
             if (merged.Stats.PlacedRefsForwarded > 0) log($"Merge also forwarded {merged.Stats.PlacedRefsForwarded} placed reference(s).");
             var outs = s.DryRun ? Array.Empty<string>() : merged.OutputPaths.ToArray();
             log(s.DryRun ? "Dry run: nothing written to the output folder." : $"Wrote {string.Join(", ", outs.Select(Path.GetFileName))}.");
+            if (!s.DryRun)
+            {
+                foreach (var o in outs)
+                {
+                    try
+                    {
+                        var rep = OutputVerifier.Verify(baseOrder, o);
+                        if (rep.Mismatches.Count == 0) log($"Check: {rep.RefsChecked} placed references in {Path.GetFileName(o)} keep the load order's disabled/deleted/base/enable-parent state.");
+                        else
+                        {
+                            var msg = $"CHECK FAILED: {rep.Mismatches.Count} placed reference(s) in {Path.GetFileName(o)} differ from the load order (disabled/deleted/base/enable parent).";
+                            log(msg); notes.Add(msg);
+                            foreach (var m in rep.Mismatches.Take(25)) log($"  {m.Ref} (winner {m.Winner}): expected [{m.Expected}] got [{m.Ours}]");
+                        }
+                    }
+                    catch (Exception ex) { log($"Check skipped: {ex.GetType().Name}: {ex.Message}"); }
+                }
+            }
             if (!s.DryRun && direct && outs.Length > 0)
                 notes.Add($"Written into {s.OutputDirectory}. Make sure {string.Join(", ", outs.Select(Path.GetFileName))} is ticked in your plugin list (Vortex, or the game's launcher) and loads after the plugins it fixes.");
             return new(true, seam, tex, road, flo, cells, outs, notes);
