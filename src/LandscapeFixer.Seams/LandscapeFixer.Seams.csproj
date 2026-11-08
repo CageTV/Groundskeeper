@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Merged core of the CageTV landscape tools (Seam Fixer, Road Mask Merger, Texture Fixer,
+       Floating Object Fixer, PatchForeman). Namespace stays SeamFinder.Core so the passes port 1:1. -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AssemblyName>LandscapeFixer.Seams</AssemblyName>
+    <RootNamespace>SeamFinder.Core</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Mutagen.Bethesda.Skyrim" Version="0.54.4" />
+    <PackageReference Include="System.Drawing.Common" Version="9.0.0" />
+  </ItemGroup>
+
+</Project>
