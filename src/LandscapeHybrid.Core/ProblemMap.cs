@@ -20,12 +20,14 @@ public static partial class HybridRunner
     /// <summary>
     /// Read-only scan of the load order as the game will see it (your outputs included, so it shows what is STILL wrong):
     /// height seams, texture-layer seams, possible water seams and floating objects, plus a terrain overview to draw them on.
-    /// <paramref name="extraPlugins"/> are appended at the end of the load order, to preview an output before enabling it.
+    /// <paramref name="withoutPlugins"/> are left out ("what if this were off"). <paramref name="extraPlugins"/> are appended at the end of the load order, to preview an output before enabling it.
     /// </summary>
-    public static ProblemMapData ProblemMap(HybridSettings s, Action<string> log, IEnumerable<string>? extraPlugins = null, string floatingWorldspace = "Tamriel")
+    public static ProblemMapData ProblemMap(HybridSettings s, Action<string> log, IEnumerable<string>? extraPlugins = null, string floatingWorldspace = "Tamriel", IEnumerable<string>? withoutPlugins = null)
     {
         var env = Resolve(s, log);
         var order = env.All.ToList();
+        foreach (var off in withoutPlugins ?? Array.Empty<string>())
+            if (order.RemoveAll(p => p.FileName.Equals(off, StringComparison.OrdinalIgnoreCase)) > 0) log($"Scanning as if {off} were disabled.");
         foreach (var path in extraPlugins ?? Array.Empty<string>())
         {
             var name = Path.GetFileName(path);
@@ -47,12 +49,15 @@ public static partial class HybridRunner
             }
         }
 
-        var seamT = Task.Run(() => Guard("Height seams", () => SeamDetector.RunForResolvedPlugins(order, log).ReportCsvLines, new List<string>()));
-        var texT = Task.Run(() => Guard("Texture seams", () => TextureLayerDetector.RunForResolvedPlugins(order, log).ReportCsvLines, new List<string>()));
-        var waterT = Task.Run(() => Guard("Water seams", () => WaterSeamReport.Run(order, log), new List<WaterSeamRow>()));
-        var floatT = Task.Run(() => Guard("Floating objects", () => FloatingObjectFixer.RunDetectionForResolvedPlugins(
+        // Each detector stages its own copy of every plugin: three at a time keeps disk and memory use reasonable on a big list.
+        var gate = new SemaphoreSlim(3);
+        Task<T> Gated<T>(Func<T> run) => Task.Run(() => { gate.Wait(); try { return run(); } finally { gate.Release(); } });
+        var seamT = Gated(() => Guard("Height seams", () => SeamDetector.RunForResolvedPlugins(order, log).ReportCsvLines, new List<string>()));
+        var texT = Gated(() => Guard("Texture seams", () => TextureLayerDetector.RunForResolvedPlugins(order, log).ReportCsvLines, new List<string>()));
+        var waterT = Gated(() => Guard("Water seams", () => WaterSeamReport.Run(order, log), new List<WaterSeamRow>()));
+        var floatT = Gated(() => Guard("Floating objects", () => FloatingObjectFixer.RunDetectionForResolvedPlugins(
             order, log, FloatingObjectFixer.DefaultThresholdUnits, floatingWorldspace, env.Asset).ReportCsvLines, new List<string>()));
-        var overT = Task.Run(() => Guard("Terrain overview", () => TerrainOverview.Run(order, log), new OverviewResult(new(), new())));
+        var overT = Gated(() => Guard("Terrain overview", () => TerrainOverview.Run(order, log), new OverviewResult(new(), new())));
         Task.WaitAll(seamT, texT, waterT, floatT, overT);
 
         var marks = new List<ProblemMark>();

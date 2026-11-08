@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.1.0 (unreleased, not yet tested in-game)
+## 0.1.0 (release candidate, not yet tested in-game)
 
 First build of Groundskeeper: one app that replaces running Landscape Seam Fixer, Landscape Texture Fixer,
 Road Mask Merger, Floating Object Fixer and PatchForeman separately.
@@ -26,6 +26,13 @@ Road Mask Merger, Floating Object Fixer and PatchForeman separately.
 - MO2: the instance and profile are detected when started from MO2, the output defaults to a "Groundskeeper Output" mod folder in the MO2 mods folder (created
   on Generate), and settings are kept per instance.
 - Passes: trust Northern Vanaheimr Roads (main plugin and patches) as a terrain source; new Preferred road mod (for road mods that edit the landscape).
+- **Problem map** window (button, or *Open the problem map after Generate*) and `--problem-map` / `--with` / `--without` on the command line: a
+  read-only scan of the load order, outputs included, drawn on a terrain map (height, water and texture seams, floating objects left
+  alone), with filters, a ranked list, details and a copyable `cow` console command. Seams are credited to the mods that cause them (it can
+  look through Landscape Fixer's output) and seams where both sides are Bethesda's own plugins are hidden by default.
+- **Faster.** The floating-object pass is about three times faster (it was re-reading the same cells and base records, and scanning whole
+  archive file lists for every mesh lookup), and a Scan's plan is reused by the Generate that follows. Output is byte-identical to before on
+  the author's list. The log now prints how long each phase took.
 - Window: in the conflict list the Make winner button now comes before the tick, rows have the name in bold with the numbers on a second line and
   alternating shading, and the arrow buttons of the winners and water lists are at the left.
 - `GROUNDSKEEPER_CONFIG` selects a different settings file.

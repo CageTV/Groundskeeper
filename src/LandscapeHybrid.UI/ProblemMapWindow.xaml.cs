@@ -13,6 +13,7 @@ public partial class ProblemMapWindow : Window
     readonly string[] _extraPlugins;
     ProblemMapData? _data;
     bool _ready;
+    bool _throughUsed;
     ProblemMark? _current;
 
     /// <param name="extraPlugins">Plugins to append at the end of the load order for the scan, to preview a fresh output before it is enabled.</param>
@@ -38,7 +39,9 @@ public partial class ProblemMapWindow : Window
         try
         {
             var s = _settings;
-            _data = await Task.Run(() => HybridRunner.ProblemMap(s, _ => { }, _extraPlugins));
+            var through = ThroughCheck.IsChecked == true;
+            _throughUsed = through;
+            _data = await Task.Run(() => HybridRunner.ProblemMap(s, _ => { }, _extraPlugins, withoutPlugins: through ? new[] { "LandscapeFixer.esp" } : null));
             _ready = false;
             var worlds = _data.Overview.OrderByDescending(kv => kv.Value.Count).Select(kv => kv.Key)
                 .Concat(_data.Marks.Select(m => m.Worldspace)).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
@@ -85,7 +88,7 @@ public partial class ProblemMapWindow : Window
         TexCheck.Content = $"Texture seams ({N(ProblemKind.TextureSeam)}, many are harmless)";
         var vis = Visible();
         Map.SetData(_data.Overview.TryGetValue(w, out var cells) ? cells : new(), vis, refit);
-        Summary.Text = $"{vis.Count} shown in {w}. Scanned {_data.PluginCount} plugins, your enabled outputs included, so what is listed is what the game would still show.";
+        Summary.Text = $"{vis.Count} shown in {w}. Scanned {_data.PluginCount} plugins" + (_throughUsed ? " as if Landscape Fixer's output were off, so seams are credited to the mods that cause them." : ", your enabled outputs included: this is what the game would still show.");
         var items = vis.OrderByDescending(m => Rank(m)).Take(600).ToList();
         ProblemList.ItemsSource = items.Select(m => new ListBoxItem { Content = Row(m), Tag = m, Foreground = new SolidColorBrush(MapView.KindColors[m.Kind]) }).ToList();
         _current = null; ShowDetails(null);
@@ -142,4 +145,6 @@ public partial class ProblemMapWindow : Window
     }
 
     async void Rescan_Click(object sender, RoutedEventArgs e) => await ScanAsync();
+
+    async void Through_Changed(object sender, RoutedEventArgs e) { if (IsLoaded && RescanButton.IsEnabled) await ScanAsync(); }
 }

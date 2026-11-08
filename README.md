@@ -1,6 +1,6 @@
 # Groundskeeper
 
-**Version 0.1.0 (first build, not yet tested in-game).** See [CHANGELOG.md](CHANGELOG.md).
+**Version 0.1.0 (release candidate, not yet tested in-game).** See [CHANGELOG.md](CHANGELOG.md).
 
 One app for the landscape problems in a big Skyrim Special Edition / Anniversary Edition load order.
 Groundskeeper scans your load order, shows you **which mods overwrite which terrain and water**, and
@@ -41,6 +41,7 @@ should win? The old tools answered it with a built-in trust list and then silent
 | **Water mods** | Protects the water mods you tick (CS Water Mod, Water for ENB, RealisticWaterTwo, Simplicity of Sea and anything else with "water" in its name). Wherever another plugin overwrote one, its water is restored. The list is in priority order: first wins. |
 | **Water seam report** | Read-only (command line, `--water-report`). Lists neighbouring cells whose water height, type or presence disagrees where the shared edge is below the water, as a CSV with the winning plugin of each cell. Rivers and waterfalls legitimately step between cells, so these are candidates to check in game, not a fix. |
 | **Seam guard** | Runs on every cell Groundskeeper writes, just before the plugin is saved. If a pass left a cell with a height gap against its neighbour that was **not there before** (for example a road merged into one cell while the next cell, from another mod, kept its old edge), the cell's edge is pulled to the neighbour and the change fades out over four vertices, the heights are re-encoded and the affected normals recomputed. It never touches a cell Groundskeeper does not write, so a seam that already exists in another mod stays that mod's. On the author's list it took the seams introduced by a run from 18 to 0. |
+| **Problem map** | Read-only. A window (button **Problem map...**, or tick *Open the problem map after Generate*) that scans your load order, outputs included, and draws what may **still** be wrong on a terrain map: height seams, possible water seams, floating objects left alone, and (optional, noisy) texture seams. Click a mark for the details and a `cow <worldspace> <x> <y>` console command that moves you there in game. It credits each seam to the mods that cause it, looking through Landscape Fixer's output, and hides seams that both come from Bethesda's own plugins. Marks are candidates, not proof. Also on the command line: `--problem-map`. |
 | **Merge** | Folds every pass into the single output plugin using the PatchForeman merge, including a guard that stops "Two records with the same FormKey" write errors. |
 
 Official content (the game masters, Creation Club plugins) is always trusted and never offered for
@@ -88,6 +89,9 @@ There is no packaged release yet: build from source (see below) and run `Grounds
 4. Press **Preview** first. It runs everything and writes nothing. Then **Generate**.
 5. Enable `Groundskeeper.esp` (and any `_2`, `_3` files, adjacent in load order) after your
    landscape mods.
+6. Open the **Problem map** to see what may still be broken. Marks that remain are for a manual fix
+   (the Creation Kit, or a patch of your own); the map gives you the cell and the console command.
+   The map is always read-only.
 
 ### Command line
 
@@ -97,6 +101,9 @@ GroundskeeperCli --direct [--game=<install or Data folder>] --output=<folder> [o
 
   --plan                     list the mods that overwrite trusted terrain or water, then exit
   --water-report=<file.csv>  read-only: list neighbouring cells whose water disagrees (candidate water seams), then exit
+  --problem-map=<file.csv>   read-only: scan the load order for what may STILL be wrong (height / texture / water seams, floating objects), write a CSV, then exit
+  --with=<plugin path>       (with --problem-map, repeatable) preview that plugin at the end of the load order, e.g. a fresh output you have not enabled yet
+  --without=<plugin name>    (with --problem-map, repeatable) leave that plugin out: what would remain if it were off
   --revert=<plugin>          revert that plugin's terrain and water (repeatable)
   --winner=<plugin>          terrain winner, first = highest priority (repeatable)
   --water-mod=<plugin>       protect that water mod, first = highest priority (repeatable)
@@ -121,6 +128,11 @@ GroundskeeperCli --direct [--game=<install or Data folder>] --output=<folder> [o
 ## Known limits
 
 - **Not tested in-game.** Preview results are plans, not proof the cells look right.
+- **The problem map lists candidates.** A river or waterfall can legitimately step between cells, and a mark can be a
+  harmless texture boundary. It does not fix anything; on the author's list most remaining height seams were the
+  Northern Vanaheimr Roads patches, not this tool.
+- **Speed.** On the author's 445-plugin list a full run (seams, textures, floating, merge) takes about a minute. The first
+  scan is the slowest part; a repeat Scan or a Generate right after it reuses its results.
 - **Vortex and "launched from MO2" are untested.** Direct mode was only run on a vanilla game folder
   with Creation Club.
 - **Floating objects** is off by default. It reads each mesh's real collision in-process (compressed

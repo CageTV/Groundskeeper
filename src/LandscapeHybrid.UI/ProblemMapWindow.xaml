@@ -51,6 +51,7 @@
                 <CheckBox x:Name="WaterCheck" IsChecked="True" Checked="Filter_Changed" Unchecked="Filter_Changed"/>
                 <CheckBox x:Name="FloatCheck" IsChecked="True" Checked="Filter_Changed" Unchecked="Filter_Changed"/>
                 <CheckBox x:Name="TexCheck" IsChecked="False" Checked="Filter_Changed" Unchecked="Filter_Changed"/>
+                <CheckBox x:Name="ThroughCheck" IsChecked="True" Checked="Through_Changed" Unchecked="Through_Changed" ToolTip="Landscape Fixer copies other mods' terrain, so a seam inside LandscapeFixer.esp really belongs to the mod it copied. This scans as if LandscapeFixer.esp were off, which shows who is responsible. Untick to see exactly what the game shows now."><TextBlock TextWrapping="Wrap" Text="Look through Landscape Fixer's output, to name the mods behind its seams"/></CheckBox>
                 <CheckBox x:Name="OfficialCheck" Content="Also show seams that come from Bethesda's own plugins" IsChecked="False" Checked="Filter_Changed" Unchecked="Filter_Changed" ToolTip="Both sides of the edge are Skyrim, DLC or Creation Club content: that is how the base game ships, not something a mod broke."/>
                 <Grid Margin="0,4,0,0">
                     <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/><ColumnDefinition Width="46"/></Grid.ColumnDefinitions>

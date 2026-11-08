@@ -12,6 +12,7 @@ using LandscapeHybrid;
 //            [--water-report=<file.csv>] read-only: list neighbouring cells whose water disagrees (candidate water seams), then exit
 //            [--problem-map=<file.csv>] read-only: scan the load order for what may STILL be wrong (height/texture/water seams, floating objects), write a CSV, then exit
 //            [--with=<plugin path>]... preview that plugin at the end of the load order in --problem-map (repeatable)
+//            [--without=<plugin name>]... leave that plugin out of the --problem-map scan (repeatable): what would remain if it were off
 //            [--plan]                  only list the plugins that overwrite trusted terrain/water, then exit
 //            [--write]                 write the plugin (default is a dry run that writes nothing)
 
@@ -70,7 +71,7 @@ try
     }
     if (problemMap is not null)
     {
-        var data = HybridRunner.ProblemMap(s, Console.WriteLine, Args(args, "--with"));
+        var data = HybridRunner.ProblemMap(s, Console.WriteLine, Args(args, "--with"), withoutPlugins: Args(args, "--without"));
         HybridRunner.WriteProblemCsv(data, problemMap);
         foreach (var g in data.Marks.GroupBy(m => m.Kind)) Console.WriteLine($"{g.Key}: {g.Count()}");
         foreach (var n in data.Notes) Console.WriteLine("note: " + n);
