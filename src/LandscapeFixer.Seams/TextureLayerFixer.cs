@@ -75,6 +75,8 @@ public static class TextureLayerFixer
         return false;
     }
 
+    sealed record GatheredCell(FormKey Worldspace, int X, int Y, CellData Data, List<(Quadrant Quadrant, IAlphaLayerGetter SourceLayer)>? Roads);
+
     record CellData(
         Dictionary<Quadrant, List<IBaseLayerGetter>> LayersByQuadrant,
         Dictionary<Quadrant, Dictionary<FormKey, float>> OpacityByQuadrant,
@@ -229,6 +231,7 @@ public static class TextureLayerFixer
             : trustedTexturePrefixes;
         var outputModKey = ModKey.FromNameAndExtension(outputPluginName);
         var patchMod = new SkyrimMod(outputModKey, SkyrimRelease.SkyrimSE);
+        var swT = System.Diagnostics.Stopwatch.StartNew();
 
         // Pass 1: decode every exterior cell's texture layers, keeping the
         // TRUE overall winning CELL's own mod-context (not necessarily the
@@ -272,68 +275,80 @@ public static class TextureLayerFixer
         // layer-count/cap bookkeeping.
         var roadTexturePreservations = new Dictionary<(FormKey Worldspace, int X, int Y), List<(Quadrant Quadrant, IAlphaLayerGetter SourceLayer)>>();
 
-        foreach (var context in linkCache.WinningContextOverrides<Cell, ICellGetter>(linkCache))
+        // Decoding a cell only reads the load order, so it runs in parallel; the results are put into the dictionaries serially, in
+        // load-order order, so everything downstream sees the same order as a single-threaded run.
+        var gatherContexts = linkCache.WinningContextOverrides<Cell, ICellGetter>(linkCache).ToList();
+        var gathered = new GatheredCell?[gatherContexts.Count];
+        try
         {
-            var cell = context.Record;
-            if (cell.Grid is null) continue;
-            if (!context.TryGetParentSimpleContext<IWorldspaceGetter>(out var wsContext)) continue;
-            var worldspaceKey = wsContext.Record.FormKey;
+            Parallel.For(0, gatherContexts.Count, new ParallelOptions { MaxDegreeOfParallelism = Math.Max(1, Environment.ProcessorCount - 1) }, i =>
+            {
+                var context = gatherContexts[i];
+                var cell = context.Record;
+                if (cell.Grid is null) return;
+                if (!context.TryGetParentSimpleContext<IWorldspaceGetter>(out var wsContext)) return;
+                var worldspaceKey = wsContext.Record.FormKey;
 
-            var (landscape, ownerModKey) = HeightmapDecoder.ResolveWinningLandscape(cell.FormKey, linkCache, priorityIndex);
-            if (landscape?.Layers is null) continue;
+                var (landscape, ownerModKey) = HeightmapDecoder.ResolveWinningLandscape(cell.FormKey, linkCache, priorityIndex);
+                if (landscape?.Layers is null) return;
 
-            var layersByQuadrant = DecodeLayers(landscape.Layers);
-            var opacityByQuadrant = TextureLayerDetector.DecodeOpacityByQuadrant(landscape.Layers);
+                var layersByQuadrant = DecodeLayers(landscape.Layers);
+                var opacityByQuadrant = TextureLayerDetector.DecodeOpacityByQuadrant(landscape.Layers);
+                var data = new CellData(layersByQuadrant, opacityByQuadrant, ownerModKey.FileName, landscape, context);
+                List<(Quadrant Quadrant, IAlphaLayerGetter SourceLayer)>? roads = null;
 
-            if (!cellsByWorldspace.TryGetValue(worldspaceKey, out var cellDict))
+                if (trustNorthernRoads)
+                {
+                    // Find the highest-priority Northern-Roads-or-its-patch context that ALSO touches this exact cell's
+                    // Landscape - mirrors RoadMaskMerger.cs's own "prefer the genuine patch over the plain base plugin" reasoning.
+                    ILandscapeGetter? nrLandscape = null;
+                    var nrIndex = -1;
+                    foreach (var ctx in linkCache.ResolveAllContexts<Cell, ICellGetter>(cell.FormKey, ResolveTarget.Winner))
+                    {
+                        if (ctx.Record.Landscape is null) continue;
+                        if (!TrustResolver.IsNorthernRoadsOrItsPatch(ctx.ModKey.FileName, trustNorthernRoads)) continue;
+                        var idx = priorityIndex.GetValueOrDefault(ctx.ModKey, -1);
+                        if (idx > nrIndex) { nrIndex = idx; nrLandscape = ctx.Record.Landscape; }
+                    }
+                    if (nrLandscape?.Layers is not null)
+                    {
+                        foreach (var nrLayer in nrLandscape.Layers)
+                        {
+                            if (nrLayer is not IAlphaLayerGetter nrAlpha) continue;
+                            string textureOwner = nrAlpha.Header.Texture.FormKey.ModKey.FileName;
+                            if (!TrustResolver.IsNorthernRoadsOrItsPatch(textureOwner, trustNorthernRoads)) continue;
+
+                            var alreadyPresent = layersByQuadrant.GetValueOrDefault(nrAlpha.Header.Quadrant)?
+                                .Any(l => l.Header.Texture.FormKey == nrAlpha.Header.Texture.FormKey) ?? false;
+                            if (alreadyPresent) continue;
+
+                            (roads ??= new()).Add((nrAlpha.Header.Quadrant, nrAlpha));
+                        }
+                    }
+                }
+                gathered[i] = new GatheredCell(worldspaceKey, cell.Grid.Point.X, cell.Grid.Point.Y, data, roads);
+            });
+        }
+        catch (AggregateException ae) when (ae.InnerExceptions.Count > 0)
+        {
+            System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(ae.InnerExceptions[0]).Throw();
+        }
+        foreach (var g in gathered)
+        {
+            if (g is null) continue;
+            if (!cellsByWorldspace.TryGetValue(g.Worldspace, out var cellDict))
             {
                 cellDict = new Dictionary<(int, int), CellData>();
-                cellsByWorldspace[worldspaceKey] = cellDict;
+                cellsByWorldspace[g.Worldspace] = cellDict;
             }
-            cellDict[(cell.Grid.Point.X, cell.Grid.Point.Y)] =
-                new CellData(layersByQuadrant, opacityByQuadrant, ownerModKey.FileName, landscape, context);
-
-            if (!trustNorthernRoads) continue;
-
-            // Find the highest-priority Northern-Roads-or-its-patch context
-            // that ALSO touches this exact cell's Landscape - mirrors
-            // RoadMaskMerger.cs's own "prefer the genuine patch over the
-            // plain base plugin" reasoning (a patch's road texture work is
-            // the more authoritative one where both exist).
-            ILandscapeGetter? nrLandscape = null;
-            var nrIndex = -1;
-            foreach (var ctx in linkCache.ResolveAllContexts<Cell, ICellGetter>(cell.FormKey, ResolveTarget.Winner))
-            {
-                if (ctx.Record.Landscape is null) continue;
-                if (!TrustResolver.IsNorthernRoadsOrItsPatch(ctx.ModKey.FileName, trustNorthernRoads)) continue;
-                var idx = priorityIndex.GetValueOrDefault(ctx.ModKey, -1);
-                if (idx > nrIndex) { nrIndex = idx; nrLandscape = ctx.Record.Landscape; }
-            }
-            if (nrLandscape?.Layers is null) continue;
-
-            foreach (var nrLayer in nrLandscape.Layers)
-            {
-                if (nrLayer is not IAlphaLayerGetter nrAlpha) continue;
-                string textureOwner = nrAlpha.Header.Texture.FormKey.ModKey.FileName;
-                if (!TrustResolver.IsNorthernRoadsOrItsPatch(textureOwner, trustNorthernRoads)) continue;
-
-                var alreadyPresent = layersByQuadrant.GetValueOrDefault(nrAlpha.Header.Quadrant)?
-                    .Any(l => l.Header.Texture.FormKey == nrAlpha.Header.Texture.FormKey) ?? false;
-                if (alreadyPresent) continue;
-
-                var key = (worldspaceKey, cell.Grid.Point.X, cell.Grid.Point.Y);
-                if (!roadTexturePreservations.TryGetValue(key, out var list))
-                {
-                    list = new();
-                    roadTexturePreservations[key] = list;
-                }
-                list.Add((nrAlpha.Header.Quadrant, nrAlpha));
-            }
+            cellDict[(g.X, g.Y)] = g.Data;
+            if (g.Roads is not null) roadTexturePreservations[(g.Worldspace, g.X, g.Y)] = g.Roads;
         }
 
         log($"Decoded {cellsByWorldspace.Sum(kv => kv.Value.Count)} cells across {cellsByWorldspace.Count} worldspace(s). " +
             $"{roadTexturePreservations.Count} cell(s) are missing a Northern Roads texture layer entirely (no boundary - a wholesale absence).");
 
+        log($"[timing] decode {swT.Elapsed.TotalSeconds:F1} s");
         // Pass 2: find ModVsBase texture-set mismatches, keyed by the base-
         // game cell + quadrant that needs a blend hint added.
         var corrections = new Dictionary<(FormKey Worldspace, int X, int Y), List<Correction>>();
@@ -436,6 +451,7 @@ public static class TextureLayerFixer
 
         log($"Found {corrections.Count} cells with a cross-cell texture seam and {hardEdgeTapers.Count} cells with an intra-cell hard-edge seam that need a blend hint.");
 
+        log($"[timing] seam analysis {swT.Elapsed.TotalSeconds:F1} s");
         var allCellKeys = corrections.Keys.Union(hardEdgeTapers.Keys).Union(roadTexturePreservations.Keys).ToList();
         int cellsPatched = 0, layersAdded = 0, layersBoosted = 0, skippedFull = 0, hardEdgeSkippedOverlap = 0, roadTextureLayersPreserved = 0;
         foreach (var (wsKey, x, y) in allCellKeys)
@@ -683,6 +699,7 @@ public static class TextureLayerFixer
 
         log($"Writing patch plugin to {outputPath} ...");
         var writtenPlugins = PluginSplitWriter.Write(patchMod, outputPath, dataFolderForWrite, log);
+        log($"[timing] written {swT.Elapsed.TotalSeconds:F1} s");
 
         log($"Patched {cellsPatched} cells ({layersAdded} layers added, {layersBoosted} existing layers boosted, {skippedFull} skipped - quadrant already at the {MaxLayersPerQuadrant}-layer cap" +
             (hardEdgeSkippedOverlap > 0 ? $", {hardEdgeSkippedOverlap} hard-edge taper(s) skipped for overlapping a cross-cell correction" : "") +
