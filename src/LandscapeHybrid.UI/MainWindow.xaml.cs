@@ -59,6 +59,7 @@ public partial class MainWindow : Window
         RoadPluginBox.Text = s.RoadSourcePlugin;
         RoadMasksBox.Text = s.RoadMaskFolder;
         RoadWorldspaceBox.Text = string.IsNullOrWhiteSpace(s.RoadWorldspace) ? "Tamriel" : s.RoadWorldspace;
+        UpdateRoadStatus();
         _savedProfile = s.Mo2Profile;
         _revert = new HashSet<string>(s.RevertPlugins, StringComparer.OrdinalIgnoreCase);
         _winners = s.TerrainWinners.ToList();
@@ -156,6 +157,17 @@ public partial class MainWindow : Window
 
     void BrowseInstance_Click(object s, RoutedEventArgs e) { if (PickFolder("MO2 instance folder (contains ModOrganizer.ini)") is { } p) InstanceBox.Text = p; }
     void BrowseGame_Click(object s, RoutedEventArgs e) { if (PickFolder("Skyrim install folder (or its Data folder)") is { } p) GameBox.Text = p; }
+    void BrowseRoadMasks_Click(object s, RoutedEventArgs e) { if (PickFolder("ACMOS Road Generator roads folder (contains 'Roads' and 'Paths Only')") is { } p) RoadMasksBox.Text = p; }
+
+    // Plain-language state of the road inputs, shown under the box so a wrong folder is obvious before a run.
+    void RoadMasks_Changed(object sender, TextChangedEventArgs e) => UpdateRoadStatus();
+
+    void UpdateRoadStatus()
+    {
+        if (RoadMasksStatus is null || RoadPluginBox is null || RoadMasksBox is null || RoadWorldspaceBox is null) return;
+        RoadMasksStatus.Text = HybridRunner.CheckRoadInputs(RoadPluginBox.Text.Trim(), RoadMasksBox.Text.Trim(), RoadWorldspaceBox.Text.Trim()) ?? "";
+    }
+
     void BrowseOutput_Click(object s, RoutedEventArgs e) { if (PickFolder("Output folder") is { } p) OutputBox.Text = p; }
 
     void OpenOutput_Click(object s, RoutedEventArgs e)
@@ -320,6 +332,7 @@ public partial class MainWindow : Window
         if (needOutput && s.OutputDirectory == "") return "Pick an output folder (a dedicated mod folder, not your Data folder).";
         if (needOutput && !s.OutputPluginName.EndsWith(".esp", StringComparison.OrdinalIgnoreCase)) return "The plugin name must end in .esp.";
         if (!s.Seams && !s.TextureLayers && !s.Floating && s.RoadSourcePlugin == "") return "Switch on at least one pass.";
+        if (s.RoadSourcePlugin != "" && HybridRunner.CheckRoadInputs(s.RoadSourcePlugin, s.RoadMaskFolder, s.RoadWorldspace) is { } roadProblem && roadProblem.StartsWith("Problem")) return roadProblem;
         return null;
     }
 

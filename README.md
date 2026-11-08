@@ -34,7 +34,7 @@ should win? The old tools answered it with a built-in trust list and then silent
 |---|---|
 | **Seams** | Restores terrain (height, normals, vertex colour) and water that a later mod overwrote, only for the mods you ticked. Skips cells that have their own water plane or where placed objects would move, and reports them. |
 | **Texture layers** | Adds a small blend hint where neighbouring cells show a hard texture boundary. Optional; review these in game. |
-| **Roads** | Reconciles a road mod's terrain with the rest. Runs only if you name a road source plugin. |
+| **Roads** | Reconciles a road mod's terrain with the rest. Runs only if you name a road source plugin **and** give it the road images from [ACMOS Road Generator](https://www.nexusmods.com/skyrimspecialedition/mods/79205) (not included; see below). Untested on real data so far. |
 | **Floating objects** | Re-grounds floating or sunken placed references, checking each against the real Havok collision of nearby meshes, read in-process (no Python needed). Off by default, and it flags many references, so read the log. |
 | **Terrain winners** | You set the order of conflicting mods; the highest wins. Written through the same safety checks as the seam pass. |
 | **Water mods** | Protects the water mods you tick (CS Water Mod, Water for ENB, RealisticWaterTwo, Simplicity of Sea and anything else with "water" in its name). Wherever another plugin overwrote one, its water is restored. The list is in priority order: first wins. |
@@ -43,6 +43,15 @@ should win? The old tools answered it with a built-in trust list and then silent
 
 Official content (the game masters, Creation Club plugins) is always trusted and never offered for
 revert.
+
+## Roads: the road mask folder
+
+The road pass needs to know where the roads are. It reads the road overlay images that ship with
+**ACMOS Road Generator** by DoubleYouC (Nexus 79205). They are not bundled here (their licence is CC BY-NC-SA).
+Download that mod, extract it, and set **Road mask folder** to the folder that holds `Roads` and `Paths Only`,
+each with a folder per worldspace (for example `Roads\tamriel\tamriel.32.-4.-2.png`). The window checks the
+folder as you type and says what is wrong. Also name the **Road source plugin** (the road mod, for example
+`Northern Roads.esp`); with that box empty the road pass is skipped.
 
 ## Works with Landscape Fixer (Cl3mus33)
 
@@ -87,7 +96,7 @@ GroundskeeperCli --direct [--game=<install or Data folder>] --output=<folder> [o
   --winner=<plugin>          terrain winner, first = highest priority (repeatable)
   --water-mod=<plugin>       protect that water mod, first = highest priority (repeatable)
   --no-seams  --no-textures  --floating  --floating-threshold=96  --floating-worldspace=Tamriel
-  --road-plugin=<esp>  --road-masks=<folder>
+  --road-plugin=<esp>  --road-masks=<folder>   (ACMOS Road Generator's road images; see "Roads")
   --trust-northern-roads  --match-neighbors
   --name=LandscapeTerrain.esp
   --write                    write the plugin (the default is a dry run)

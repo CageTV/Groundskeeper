@@ -31,6 +31,16 @@ plugin is never used as a terrain source. Groundskeeper's goal of working cleanl
 idea of handling the snow, blend and landscape mess in one pass instead of many, owe a lot to that
 work. Please support the original.
 
+## ACMOS Road Generator, by DoubleYouC
+
+The road pass finds roads by reading the road overlay images of **ACMOS Road Generator** by **DoubleYouC**
+([Nexus mod 79205](https://www.nexusmods.com/skyrimspecialedition/mods/79205),
+[GitHub](https://github.com/DoubleYouC/ACMOS-Road-Generator)). Those images were made to paint roads onto
+terrain LOD, and Groundskeeper (like Road Mask Merger before it) reuses them as a map of where the roads are.
+The images are licensed **CC BY-NC-SA** by their author, so Groundskeeper does **not** include them:
+download ACMOS Road Generator yourself and point the "Road mask folder" box at it. Please support the
+original author.
+
 ## Libraries
 
 - **Mutagen** by Noggog and the Mutagen-Modding contributors, for reading and writing plugins.

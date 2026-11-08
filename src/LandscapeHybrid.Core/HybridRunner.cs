@@ -229,6 +229,25 @@ public static class HybridRunner
         return rows;
     }
 
+    /// <summary>Explains the road inputs in plain words. Null when nothing is entered; a message starting with "Problem" when the road
+    /// pass would fail; otherwise a short confirmation. The masks are ACMOS Road Generator's road images, laid out as
+    /// Roads\&lt;worldspace&gt;\&lt;worldspace&gt;.32.&lt;x&gt;.&lt;y&gt;.png (or Paths Only).</summary>
+    public static string? CheckRoadInputs(string roadPlugin, string maskFolder, string worldspace)
+    {
+        if (roadPlugin.Length == 0 && maskFolder.Length == 0) return null;
+        if (roadPlugin.Length == 0) return "The road pass is skipped: no road source plugin is named.";
+        if (maskFolder.Length == 0) return "Problem: the road pass needs the road mask folder (ACMOS Road Generator's road images, Nexus mod 79205).";
+        if (!Directory.Exists(maskFolder)) return "Problem: the road mask folder does not exist.";
+        var ws = (worldspace.Length == 0 ? "Tamriel" : worldspace).ToLowerInvariant();
+        var roads = Path.Combine(maskFolder, "Roads", ws);
+        var paths = Path.Combine(maskFolder, "Paths Only", ws);
+        if (Directory.Exists(roads) && Directory.EnumerateFiles(roads, "*.png").Any())
+            return $"Road masks found for '{ws}'.";
+        if (Directory.Exists(paths) && Directory.EnumerateFiles(paths, "*.png").Any())
+            return $"Problem: only 'Paths Only' masks were found for '{ws}'; the road pass looks in Roads\\{ws}.";
+        return $"Problem: no road images in '{maskFolder}' for worldspace '{ws}'. Pick the folder that contains 'Roads' and 'Paths Only' (each with a '{ws}' folder of .png tiles).";
+    }
+
     static WaterTrustOptions WaterOptions(HybridSettings s) =>
         s.WaterMods.Count == 0 ? WaterTrustOptions.None : new WaterTrustOptions(CustomWaterMods: s.WaterMods.ToList());
 
@@ -306,7 +325,10 @@ public static class HybridRunner
                     s.TrustNorthernRoads, customTrusted);
                 tex = r.CellsPatched; return r.OutputPath;
             });
-            Pass("Roads", !string.IsNullOrWhiteSpace(s.RoadSourcePlugin), () =>
+            var roadCheck = string.IsNullOrWhiteSpace(s.RoadSourcePlugin) ? null : CheckRoadInputs(s.RoadSourcePlugin, s.RoadMaskFolder, s.RoadWorldspace);
+            var roadBad = roadCheck?.StartsWith("Problem") ?? false;
+            if (roadBad) { log("Roads skipped. " + roadCheck); notes.Add("Roads skipped. " + roadCheck); }
+            Pass("Roads", !string.IsNullOrWhiteSpace(s.RoadSourcePlugin) && !roadBad, () =>
             {
                 var r = RoadTerrainMerger.RunForResolvedPlugins(baseOrder, "RoadMaskMerge.esp", staging, log,
                     s.RoadSourcePlugin, s.RoadMaskFolder, s.RoadWorldspace);

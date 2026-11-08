@@ -28,6 +28,13 @@ An earlier version of the floating-object pass used PyNifly (by BadDogSkyrim,
 <https://github.com/BadDogSkyrim/PyNifly>) through Python. That dependency is gone; PyNifly is no longer
 used or included. Its output was used once, as the reference to test the in-process reader against.
 
+## ACMOS Road Generator road images (CC BY-NC-SA 4.0), not bundled
+
+The road pass reads the road overlay PNG tiles of ACMOS Road Generator by DoubleYouC
+(<https://github.com/DoubleYouC/ACMOS-Road-Generator>, Nexus mod 79205), which are licensed CC BY-NC-SA 4.0 by
+their author. They are **not** included in or distributed with Groundskeeper; you supply them from the
+original mod. Groundskeeper only reads them, and does not modify or redistribute them.
+
 ## Landscape Fixer by Cl3mus33
 
 No code from Landscape Fixer is included. Groundskeeper only leaves its `LandscapeFixer.esp` out of the
