@@ -225,6 +225,14 @@ public static class HybridRunner
     public static HybridResult Run(HybridSettings s, Action<string> log)
     {
         var notes = new List<string>();
+        if (!s.DryRun)
+        {
+            // Generate writes into the output folder: refuse the game's own Data folder or anything that looks like it.
+            var full = Path.GetFullPath(s.OutputDirectory).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+            if (File.Exists(Path.Combine(full, "Skyrim.esm")) || (Directory.Exists(Path.Combine(full, "Data")) && File.Exists(Path.Combine(full, "SkyrimSE.exe")))
+                || string.Equals(Path.GetFileName(full), "Data", StringComparison.OrdinalIgnoreCase))
+                throw new InvalidOperationException($"'{s.OutputDirectory}' looks like the game's Data folder or install. Pick a dedicated output folder (for example a 'Groundskeeper Output' mod folder).");
+        }
         var env = Resolve(s, log);
         var baseOrder = env.BaseOrder;
 

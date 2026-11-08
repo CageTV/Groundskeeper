@@ -95,6 +95,7 @@ GroundskeeperCli --direct [--game=<install or Data folder>] --output=<folder> [o
 
 - Preview and the command line default to a **dry run**; only Generate / `--write` writes.
 - It never edits an existing plugin. It writes a new one.
+- Generate refuses an output folder that is, or looks like, the game's `Data` folder or install.
 - It never changes your load order or your mod manager's files.
 - Your own settings are kept in `%APPDATA%\Groundskeeper\settings.json`.
 
