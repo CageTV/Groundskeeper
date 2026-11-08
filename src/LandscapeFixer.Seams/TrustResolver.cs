@@ -158,6 +158,11 @@ public static class TrustResolver
     // headroom above the 13 baseline, not a tight fit to it.
     const int MaxMastersForPatchDetection = 25;
 
+    static readonly HashSet<string> OfficialMasters = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "Skyrim.esm", "Update.esm", "Dawnguard.esm", "HearthFires.esm", "Dragonborn.esm",
+    };
+
     // Call once per run, before any trust check, from each fixer's own
     // GenerateFixPluginCore - see SeamFixer/TextureLayerFixer for how the
     // masters dictionary gets built from the resolved load order.
@@ -193,6 +198,11 @@ public static class TrustResolver
         if (_outputPluginNameForRun is not null && (plugin.Equals(_outputPluginNameForRun, StringComparison.OrdinalIgnoreCase)
                 || PluginSplitWriter.IsSplitSiblingOf(plugin, _outputPluginNameForRun)))
             return false;
+        // The official game masters are masters of virtually EVERY plugin: 'lists Skyrim.esm as a master' says nothing
+        // about being a patch of it. Without this exclusion every plugin counted as a trusted 'patch of Skyrim.esm', the
+        // owner of every cell looked trusted, and the seam/texture passes found nothing to restore (caught by
+        // tests/TerrainEditCheck: an untrusted plugin carrying old terrain over a trusted repair was never fixed).
+        if (OfficialMasters.Contains(baseName)) return false;
         if (_mastersByPlugin is null || !_mastersByPlugin.TryGetValue(plugin, out var masters))
             return false;
         if (masters.Count > MaxMastersForPatchDetection)
