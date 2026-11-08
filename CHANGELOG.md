@@ -18,4 +18,5 @@ Road Mask Merger, Floating Object Fixer and PatchForeman separately.
   trusted.
 - Floating-object pass no longer needs Python, PyNifly or SciPy: collision is read in-process with niflysharp,
   checked against the old PyNifly output on 269 real meshes.
+- `--water-report`: read-only CSV of neighbouring cells whose water disagrees (candidate "random water squares"); no automatic fix yet.
 - Tests: `TerrainEditCheck`, `TerrainPriorityCheck`, `PlacedChildDeduperCheck`, `CollisionCheck`.

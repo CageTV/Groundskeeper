@@ -38,6 +38,7 @@ should win? The old tools answered it with a built-in trust list and then silent
 | **Floating objects** | Re-grounds floating or sunken placed references, checking each against the real Havok collision of nearby meshes, read in-process (no Python needed). Off by default, and it flags many references, so read the log. |
 | **Terrain winners** | You set the order of conflicting mods; the highest wins. Written through the same safety checks as the seam pass. |
 | **Water mods** | Protects the water mods you tick (CS Water Mod, Water for ENB, RealisticWaterTwo, Simplicity of Sea and anything else with "water" in its name). Wherever another plugin overwrote one, its water is restored. The list is in priority order: first wins. |
+| **Water seam report** | Read-only (command line, `--water-report`). Lists neighbouring cells whose water height, type or presence disagrees where the shared edge is below the water, as a CSV with the winning plugin of each cell. Rivers and waterfalls legitimately step between cells, so these are candidates to check in game, not a fix. |
 | **Merge** | Folds every pass into the single output plugin using the PatchForeman merge, including a guard that stops "Two records with the same FormKey" write errors. |
 
 Official content (the game masters, Creation Club plugins) is always trusted and never offered for
@@ -81,6 +82,7 @@ GroundskeeperCli --mo2 <instance> <profile> --output=<folder> [options]
 GroundskeeperCli --direct [--game=<install or Data folder>] --output=<folder> [options]
 
   --plan                     list the mods that overwrite trusted terrain or water, then exit
+  --water-report=<file.csv>  read-only: list neighbouring cells whose water disagrees (candidate water seams), then exit
   --revert=<plugin>          revert that plugin's terrain and water (repeatable)
   --winner=<plugin>          terrain winner, first = highest priority (repeatable)
   --water-mod=<plugin>       protect that water mod, first = highest priority (repeatable)

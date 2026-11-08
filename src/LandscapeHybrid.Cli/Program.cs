@@ -8,6 +8,7 @@ using LandscapeHybrid;
 //            [--revert=<plugin>]...   revert that plugin's terrain/water (repeatable; default: nothing is reverted)
 //            [--water-mod=<plugin>]... protect that water mod, first = highest priority (repeatable)
 //            [--winner=<plugin>]...    terrain winners in your order, first = highest (repeatable)
+//            [--water-report=<file.csv>] read-only: list neighbouring cells whose water disagrees (candidate water seams), then exit
 //            [--plan]                  only list the plugins that overwrite trusted terrain/water, then exit
 //            [--write]                 write the plugin (default is a dry run that writes nothing)
 
@@ -19,7 +20,8 @@ static List<string> Args(string[] a, string key) =>
 var mo2 = args.Length >= 3 && args[0] == "--mo2";
 var direct = args.Length >= 1 && args[0] == "--direct";
 var planOnly = args.Contains("--plan");
-if ((!mo2 && !direct) || (Arg(args, "--output") is null && !planOnly))
+var waterReport = Arg(args, "--water-report");
+if ((!mo2 && !direct) || (Arg(args, "--output") is null && !planOnly && waterReport is null))
 {
     Console.WriteLine("Usage:");
     Console.WriteLine("  GroundskeeperCli --mo2 <instance> <profile> --output=<folder> [options]");
@@ -54,6 +56,12 @@ var s = new HybridSettings
 
 try
 {
+    if (waterReport is not null)
+    {
+        var rows = HybridRunner.WaterSeams(s, Console.WriteLine, waterReport);
+        Console.WriteLine($"{rows.Count} possible water seams; {rows.Count(r => r.ExposedVertices >= 10)} with 10 or more of the 33 edge vertices exposed.");
+        return 0;
+    }
     if (planOnly)
     {
         var plan = HybridRunner.Plan(s, Console.WriteLine);

@@ -219,6 +219,16 @@ public static class HybridRunner
         return new TerrainPlan(list, skippedWater, skippedRef, waterChoices);
     }
 
+    /// <summary>Read-only: lists neighbouring cells whose water disagrees where the shared edge is below the water plane (candidate
+    /// "random squares of water"). Writes nothing but the optional CSV.</summary>
+    public static IReadOnlyList<WaterSeamRow> WaterSeams(HybridSettings s, Action<string> log, string? csvPath = null)
+    {
+        var env = Resolve(s, log);
+        var rows = WaterSeamReport.Run(env.BaseOrder, log);
+        if (!string.IsNullOrWhiteSpace(csvPath)) { WaterSeamReport.WriteCsv(rows, csvPath); log($"Wrote {csvPath}"); }
+        return rows;
+    }
+
     static WaterTrustOptions WaterOptions(HybridSettings s) =>
         s.WaterMods.Count == 0 ? WaterTrustOptions.None : new WaterTrustOptions(CustomWaterMods: s.WaterMods.ToList());
 
