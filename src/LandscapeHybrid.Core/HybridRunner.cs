@@ -153,7 +153,7 @@ public static class HybridRunner
         for (var pass = 1; pass <= 8; pass++)
         {
             var trusted = found.Keys.Where(k => !revert.Contains(k)).Concat(s.TerrainWinners).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
-            var staging = Path.Combine(Path.GetTempPath(), "LandscapeHybridPlan-" + Guid.NewGuid().ToString("N"));
+            var staging = Path.Combine(Path.GetTempPath(), "GroundskeeperPlan-" + Guid.NewGuid().ToString("N"));
             Directory.CreateDirectory(staging);
             var lines = new List<string>();
             try
@@ -250,7 +250,7 @@ public static class HybridRunner
                 notes.Add($"'{r}' is ticked for revert but no longer overwrites trusted terrain or water - nothing to do for it.");
         }
 
-        var staging = Path.Combine(Path.GetTempPath(), "LandscapeHybrid-" + Guid.NewGuid().ToString("N"));
+        var staging = Path.Combine(Path.GetTempPath(), "Groundskeeper-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(staging);
         var patches = new List<Mo2Resolver.ResolvedPlugin>();
         int seam = 0, tex = 0, road = 0, flo = 0;

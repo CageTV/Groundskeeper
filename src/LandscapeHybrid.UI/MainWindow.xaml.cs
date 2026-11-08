@@ -10,7 +10,7 @@ namespace LandscapeHybrid.UI;
 public partial class MainWindow : Window
 {
     static readonly string SettingsPath = Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "LandscapeHybrid", "settings.json");
+        Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "Groundskeeper", "settings.json");
 
     bool _loading = true;
     bool _busy;
@@ -170,7 +170,7 @@ public partial class MainWindow : Window
     {
         if (_busy) return;
         var s = Collect(true);
-        if (Validate(s, false) is { } problem) { MessageBox.Show(this, problem, "Landscape Hybrid", MessageBoxButton.OK, MessageBoxImage.Information); return; }
+        if (Validate(s, false) is { } problem) { MessageBox.Show(this, problem, "Groundskeeper", MessageBoxButton.OK, MessageBoxImage.Information); return; }
         SetBusy(true, "Scanning terrain and water conflicts...");
         LogBox.Clear();
         void Log(string m) => Dispatcher.BeginInvoke(() => { LogBox.AppendText(m + Environment.NewLine); LogBox.ScrollToEnd(); });
@@ -328,7 +328,7 @@ public partial class MainWindow : Window
         if (_busy) return;
         var dry = (string)((Button)sender).Tag == "dry";
         var s = Collect(dry);
-        if (Validate(s, !dry) is { } problem) { MessageBox.Show(this, problem, "Landscape Hybrid", MessageBoxButton.OK, MessageBoxImage.Information); return; }
+        if (Validate(s, !dry) is { } problem) { MessageBox.Show(this, problem, "Groundskeeper", MessageBoxButton.OK, MessageBoxImage.Information); return; }
 
         SetBusy(true, dry ? "Previewing..." : "Generating...");
         LogBox.Clear();

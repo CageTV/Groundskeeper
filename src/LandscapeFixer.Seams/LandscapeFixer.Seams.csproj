@@ -6,7 +6,7 @@
     <TargetFramework>net10.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
-    <AssemblyName>LandscapeFixer.Seams</AssemblyName>
+    <AssemblyName>Groundskeeper.Seams</AssemblyName>
     <RootNamespace>SeamFinder.Core</RootNamespace>
   </PropertyGroup>
 

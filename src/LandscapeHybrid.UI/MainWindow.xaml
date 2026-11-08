@@ -1,7 +1,7 @@
 <Window x:Class="LandscapeHybrid.UI.MainWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="Landscape Hybrid" Height="720" Width="1180" MinHeight="520" MinWidth="900"
+        Title="Groundskeeper" Height="720" Width="1180" MinHeight="520" MinWidth="900"
         WindowStartupLocation="CenterScreen"
         Background="{StaticResource Bg}" Foreground="{StaticResource Text}">
     <Window.Resources>
@@ -98,7 +98,7 @@
                                 <TextBox Grid.Column="1" x:Name="PluginNameBox" Text="LandscapeTerrain.esp"/>
                             </Grid>
                             <TextBlock Style="{StaticResource Hint}" Margin="0,4,0,0" TextWrapping="Wrap">
-                                Use a dedicated folder, e.g. a "Landscape Hybrid Output" mod folder. Only this tool's own plugin names in it are ever replaced.
+                                Use a dedicated folder, e.g. a "Groundskeeper Output" mod folder. Only this tool's own plugin names in it are ever replaced.
                             </TextBlock>
                         </StackPanel>
                     </GroupBox>
