@@ -50,9 +50,12 @@ public partial class MainWindow : Window
         RoadMasksBox.Text = s.RoadMaskFolder;
         RoadWorldspaceBox.Text = string.IsNullOrWhiteSpace(s.RoadWorldspace) ? "Tamriel" : s.RoadWorldspace;
         _savedProfile = s.Mo2Profile;
+        _revert = new HashSet<string>(s.RevertPlugins, StringComparer.OrdinalIgnoreCase);
+        if (_revert.Count > 0) ScanSummary.Text = $"{_revert.Count} mod(s) ticked for revert from last time. Scan again to see current conflicts.";
     }
 
     string? _savedProfile;
+    HashSet<string> _revert = new(StringComparer.OrdinalIgnoreCase);
 
     HybridSettings Collect(bool dryRun) => new()
     {
@@ -69,6 +72,7 @@ public partial class MainWindow : Window
         RoadSourcePlugin = RoadPluginBox.Text.Trim(),
         RoadMaskFolder = RoadMasksBox.Text.Trim(),
         RoadWorldspace = RoadWorldspaceBox.Text.Trim(),
+        RevertPlugins = _revert.OrderBy(x => x).ToList(),
         DryRun = dryRun,
     };
 
@@ -129,6 +133,52 @@ public partial class MainWindow : Window
         if (Directory.Exists(p)) Process.Start(new ProcessStartInfo("explorer.exe", $"\"{p}\"") { UseShellExecute = true });
     }
 
+    // ---- terrain conflicts ----
+
+    async void Scan_Click(object sender, RoutedEventArgs e)
+    {
+        if (_busy) return;
+        var s = Collect(true);
+        if (Validate(s, false) is { } problem) { MessageBox.Show(this, problem, "Landscape Hybrid", MessageBoxButton.OK, MessageBoxImage.Information); return; }
+        SetBusy(true, "Scanning terrain conflicts...");
+        LogBox.Clear();
+        void Log(string m) => Dispatcher.BeginInvoke(() => { LogBox.AppendText(m + Environment.NewLine); LogBox.ScrollToEnd(); });
+        try
+        {
+            var plan = await Task.Run(() => HybridRunner.Plan(s, Log));
+            ConflictList.Children.Clear();
+            foreach (var c in plan.Candidates)
+            {
+                var cb = new CheckBox
+                {
+                    Tag = c.Plugin,
+                    IsChecked = _revert.Contains(c.Plugin),
+                    Content = $"{c.Plugin}  -  {c.Cells} cell(s), up to {c.MaxUnits} units, reverts to {c.RestoresTo}",
+                    ToolTip = "Example cells: " + string.Join(", ", c.SampleCells) + ". Tick to REVERT this mod's terrain in these cells; untick to keep it.",
+                };
+                cb.Checked += Revert_Changed; cb.Unchecked += Revert_Changed;
+                ConflictList.Children.Add(cb);
+            }
+            // a saved tick for a mod that no longer conflicts is dropped
+            _revert.RemoveWhere(r => plan.Candidates.All(c => !c.Plugin.Equals(r, StringComparison.OrdinalIgnoreCase)));
+            ScanSummary.Text = plan.Candidates.Count == 0
+                ? "No mod overwrites trusted terrain."
+                : $"{plan.Candidates.Count} mod(s) overwrite trusted terrain in {plan.Candidates.Sum(c => c.Cells)} cell(s) ({plan.SkippedWater} more skipped for water, {plan.SkippedReference} for placed references). Tick only the ones you want reverted.";
+            SetBusy(false, "Scan finished. Nothing was written.");
+        }
+        catch (Exception ex)
+        {
+            Log("FAILED: " + ex.Message);
+            SetBusy(false, "Scan failed - see the log.");
+        }
+    }
+
+    void Revert_Changed(object sender, RoutedEventArgs e)
+    {
+        if (sender is not CheckBox { Tag: string plugin } cb) return;
+        if (cb.IsChecked == true) _revert.Add(plugin); else _revert.Remove(plugin);
+    }
+
     // ---- run ----
 
     string? Validate(HybridSettings s, bool needOutput)
@@ -173,7 +223,7 @@ public partial class MainWindow : Window
     void SetBusy(bool busy, string status)
     {
         _busy = busy;
-        DryRunButton.IsEnabled = WriteButton.IsEnabled = !busy;
+        DryRunButton.IsEnabled = WriteButton.IsEnabled = ScanButton.IsEnabled = !busy;
         Bar.Visibility = busy ? Visibility.Visible : Visibility.Hidden;
         Bar.IsIndeterminate = busy;
         StatusText.Text = status;

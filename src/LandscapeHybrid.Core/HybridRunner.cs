@@ -24,6 +24,9 @@ public sealed class HybridSettings
     public string RoadWorldspace { get; set; } = "Tamriel";
     public bool TrustNorthernRoads { get; set; }
     public bool MatchNeighborsToTrustedChain { get; set; }
+    /// <summary>Plugins whose terrain edits the user chose to REVERT to the trusted terrain below them.
+    /// Every other plugin that overwrites trusted terrain is kept (treated as trusted). Default: none.</summary>
+    public List<string> RevertPlugins { get; set; } = new();
     /// <summary>True = run every pass and the merge but write nothing into the output folder.</summary>
     public bool DryRun { get; set; }
 }
@@ -32,17 +35,26 @@ public sealed record HybridResult(
     bool Ran, int SeamCells, int TextureCells, int RoadCells, int FloatingRefs, int MergedCells,
     IReadOnlyList<string> OutputPaths, IReadOnlyList<string> Notes);
 
+/// <param name="Plugin">A plugin that currently overwrites terrain a trusted plugin authored.</param>
+/// <param name="RestoresTo">The trusted plugin whose terrain it would be reverted to (last one seen).</param>
+public sealed record RevertCandidate(string Plugin, int Cells, int MaxUnits, string RestoresTo, IReadOnlyList<string> SampleCells);
+
+public sealed record TerrainPlan(IReadOnlyList<RevertCandidate> Candidates, int SkippedWater, int SkippedReference);
+
 /// <summary>
 /// One run: resolve the MO2 load order once, run the selected terrain passes over it (each against the base
 /// list, like the standalone tools), then fold their patches into one plugin with the PatchForeman merge.
 /// Works alongside Cl3mus33's Landscape Fixer: its plugin is never a terrain source (see
 /// TrustResolver.ThirdPartyGeneratedOutputs) and is left out of the source list, so run order between the
 /// two tools does not matter and neither reads the other's output.
+///
+/// Terrain trust is explicit: <see cref="Plan"/> lists every plugin that overwrites trusted terrain; a run keeps
+/// all of them unless the user listed them in <see cref="HybridSettings.RevertPlugins"/>.
 /// </summary>
 public static class HybridRunner
 {
     public static readonly string[] PassPluginNames =
-        { "LandscapeSeamFixes.esp", "LandscapeTextureFixes.esp", "RoadMaskMerge.esp", "FloatingObjectFixes.esp" };
+        { "LandscapeSeamFixes.esp", "LandscapeTextureFixes.esp", "RoadMaskMerge.esp", "FloatingObjectFixes.esp", "LandscapeSeamPlan.esp" };
 
     public static bool IsOwnOutput(string fileName, string mergedName)
     {
@@ -53,24 +65,109 @@ public static class HybridRunner
             || Regex.IsMatch(stem, "^" + Regex.Escape(mergedStem) + @"_\d+$", RegexOptions.IgnoreCase);
     }
 
-    public static HybridResult Run(HybridSettings s, Action<string> log)
-    {
-        var notes = new List<string>();
+    static readonly Regex RestoreLine = new(
+        @"Restored \[(?<ws>[^\]]+)\] \((?<x>-?\d+),(?<y>-?\d+)\): (?<by>.+?) had overwritten (?<to>.+?)'s terrain by up to (?<u>\d+) units",
+        RegexOptions.Compiled);
+    static readonly Regex SkipSummary = new(
+        @"skipped (?<w>\d+) with their own water plane; skipped (?<r>\d+) where a placed reference", RegexOptions.Compiled);
 
+    static (Mo2Resolver.Result Resolved, List<Mo2Resolver.ResolvedPlugin> BaseOrder) LoadOrder(HybridSettings s, Action<string> log)
+    {
         var game = string.IsNullOrWhiteSpace(s.GameDataPath) ? ReadGamePathFromIni(s.Mo2InstancePath) : s.GameDataPath;
         var resolved = Mo2Resolver.Resolve(s.Mo2InstancePath, s.Mo2Profile, game);
         log($"Resolved {resolved.LoadOrder.Count} active plugins ({resolved.MissingPlugins.Count} missing).");
+        var baseOrder = resolved.LoadOrder
+            .Where(p => !p.FileName.Equals("LandscapeFixer.esp", StringComparison.OrdinalIgnoreCase)
+                     && !IsOwnOutput(p.FileName, s.OutputPluginName))
+            .ToList();
+        return (resolved, baseOrder);
+    }
+
+    /// <summary>Finds every plugin that currently overwrites terrain a trusted plugin authored, and what it would be
+    /// reverted to. Writes nothing. The user picks which of these to revert; the rest are kept.</summary>
+    public static TerrainPlan Plan(HybridSettings s, Action<string> log)
+    {
+        var (_, baseOrder) = LoadOrder(s, log);
+        return PlanFrom(baseOrder, s, log);
+    }
+
+    static TerrainPlan PlanFrom(List<Mo2Resolver.ResolvedPlugin> baseOrder, HybridSettings s, Action<string> log)
+    {
+        // Keeping a plugin makes it trusted, which can expose NEW overwriters of it (A overwrites trusted T; once A is kept,
+        // B overwriting A shows up). Iterate until no new overwriter appears, so "nothing ticked" really means "nothing changes".
+        var revert = new HashSet<string>(s.RevertPlugins, StringComparer.OrdinalIgnoreCase);
+        var found = new Dictionary<string, (int Cells, int Max, string To, List<string> Samples)>(StringComparer.OrdinalIgnoreCase);
+        int skippedWater = 0, skippedRef = 0;
+        for (var pass = 1; pass <= 8; pass++)
+        {
+            var trusted = found.Keys.Where(k => !revert.Contains(k)).ToList();
+            var staging = Path.Combine(Path.GetTempPath(), "LandscapeHybridPlan-" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(staging);
+            var lines = new List<string>();
+            try
+            {
+                SeamFixer.GenerateFixPluginForResolvedPlugins(baseOrder, "LandscapeSeamPlan.esp", staging,
+                    m => lines.Add(m), s.TrustNorthernRoads, customTrustedPlugins: trusted);
+            }
+            finally { try { Directory.Delete(staging, recursive: true); } catch { /* scratch in %TEMP% */ } }
+
+            var added = 0;
+            var thisPass = new Dictionary<string, (int Cells, int Max, string To, List<string> Samples)>(StringComparer.OrdinalIgnoreCase);
+            foreach (var l in lines)
+            {
+                if (SkipSummary.Match(l) is { Success: true } sm)
+                {
+                    skippedWater = int.Parse(sm.Groups["w"].Value);
+                    skippedRef = int.Parse(sm.Groups["r"].Value);
+                }
+                if (RestoreLine.Match(l) is not { Success: true } m) continue;
+                var plugin = m.Groups["by"].Value;
+                var units = int.Parse(m.Groups["u"].Value);
+                if (!thisPass.TryGetValue(plugin, out var cur)) cur = (0, 0, "", new List<string>());
+                cur.Cells++;
+                cur.Max = Math.Max(cur.Max, units);
+                cur.To = m.Groups["to"].Value;
+                if (cur.Samples.Count < 4) cur.Samples.Add($"{m.Groups["ws"].Value} ({m.Groups["x"].Value},{m.Groups["y"].Value})");
+                thisPass[plugin] = cur;
+            }
+            foreach (var (plugin, st) in thisPass)
+            {
+                if (!found.TryGetValue(plugin, out var old)) { found[plugin] = st; added++; }
+                else if (st.Cells > old.Cells) found[plugin] = st; // keep the fuller picture
+            }
+            if (added == 0) break;
+        }
+        var list = found.Select(kv => new RevertCandidate(kv.Key, kv.Value.Cells, kv.Value.Max, kv.Value.To, kv.Value.Samples))
+                        .OrderByDescending(c => c.Cells).ToList();
+        log($"Terrain plan: {list.Count} plugin(s) overwrite trusted terrain in {list.Sum(c => c.Cells)} cell(s).");
+        return new TerrainPlan(list, skippedWater, skippedRef);
+    }
+
+    public static HybridResult Run(HybridSettings s, Action<string> log)
+    {
+        var notes = new List<string>();
+        var (resolved, baseOrder) = LoadOrder(s, log);
 
         if (resolved.LoadOrder.Any(p => p.FileName.Equals("LandscapeFixer.esp", StringComparison.OrdinalIgnoreCase)))
             notes.Add("Landscape Fixer's LandscapeFixer.esp is active: it is left out of the terrain sources (never read as a source).");
         else
             notes.Add("LandscapeFixer.esp is not active in this profile. Run Landscape Fixer and enable its output; this tool does not need it to work.");
-
-        var baseOrder = resolved.LoadOrder
-            .Where(p => !p.FileName.Equals("LandscapeFixer.esp", StringComparison.OrdinalIgnoreCase)
-                     && !IsOwnOutput(p.FileName, s.OutputPluginName))
-            .ToList();
         log($"{baseOrder.Count} source plugins (own outputs and LandscapeFixer.esp excluded).");
+
+        // Terrain trust: a plugin that overwrites trusted terrain is KEPT (trusted) unless the user ticked it for revert.
+        var customTrusted = new List<string>();
+        if (s.Seams || s.TextureLayers)
+        {
+            var plan = PlanFrom(baseOrder, s, log);
+            var revert = new HashSet<string>(s.RevertPlugins, StringComparer.OrdinalIgnoreCase);
+            customTrusted = plan.Candidates.Select(c => c.Plugin).Where(p => !revert.Contains(p)).ToList();
+            var reverting = plan.Candidates.Where(c => revert.Contains(c.Plugin)).ToList();
+            log($"Keeping {customTrusted.Count} terrain-editing plugin(s); reverting {reverting.Count} ({reverting.Sum(c => c.Cells)} cell(s)).");
+            if (reverting.Count == 0)
+                notes.Add("No plugin was chosen for terrain revert, so no landscape terrain was changed (water and texture hints still run).");
+            foreach (var r in s.RevertPlugins.Where(r => plan.Candidates.All(c => !c.Plugin.Equals(r, StringComparison.OrdinalIgnoreCase))))
+                notes.Add($"'{r}' is ticked for revert but no longer overwrites trusted terrain - nothing to do for it.");
+        }
 
         var staging = Path.Combine(Path.GetTempPath(), "LandscapeHybrid-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(staging);
@@ -99,12 +196,14 @@ public static class HybridRunner
         {
             Pass("Seams", s.Seams, () =>
             {
-                var r = SeamFixer.GenerateFixPluginForResolvedPlugins(baseOrder, "LandscapeSeamFixes.esp", staging, log, s.TrustNorthernRoads);
+                var r = SeamFixer.GenerateFixPluginForResolvedPlugins(baseOrder, "LandscapeSeamFixes.esp", staging, log,
+                    s.TrustNorthernRoads, customTrustedPlugins: customTrusted);
                 seam = r.CellsPatched; return r.OutputPath;
             });
             Pass("Texture layers", s.TextureLayers, () =>
             {
-                var r = TextureLayerFixer.GenerateFixPluginForResolvedPlugins(baseOrder, "LandscapeTextureFixes.esp", staging, log, s.TrustNorthernRoads);
+                var r = TextureLayerFixer.GenerateFixPluginForResolvedPlugins(baseOrder, "LandscapeTextureFixes.esp", staging, log,
+                    s.TrustNorthernRoads, customTrusted);
                 tex = r.CellsPatched; return r.OutputPath;
             });
             Pass("Roads", !string.IsNullOrWhiteSpace(s.RoadSourcePlugin), () =>

@@ -107,6 +107,18 @@
                         </StackPanel>
                     </GroupBox>
 
+                    <GroupBox Header="TERRAIN CONFLICTS - WHO OVERWRITES TRUSTED TERRAIN">
+                        <StackPanel>
+                            <TextBlock Style="{StaticResource Hint}" TextWrapping="Wrap" Margin="0,0,0,6">
+                                Scan lists every mod that overwrites terrain a trusted plugin (game, patches) authored. Mods are KEPT as they are
+                                unless you tick them to be reverted. Nothing ticked = no terrain is changed.
+                            </TextBlock>
+                            <Button x:Name="ScanButton" Content="Scan for terrain conflicts" HorizontalAlignment="Left" Click="Scan_Click"/>
+                            <TextBlock x:Name="ScanSummary" Style="{StaticResource Hint}" Margin="0,4,0,4" TextWrapping="Wrap"/>
+                            <StackPanel x:Name="ConflictList"/>
+                        </StackPanel>
+                    </GroupBox>
+
                     <GroupBox Header="ROADS (OPTIONAL)">
                         <Grid>
                             <Grid.ColumnDefinitions>
