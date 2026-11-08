@@ -16,4 +16,6 @@ Road Mask Merger, Floating Object Fixer and PatchForeman separately.
 - Fix: the game masters (Skyrim.esm, the DLCs) no longer make every plugin a trusted "patch", which had
   stopped the earlier tools from restoring any landscape. Official and Creation Club plugins are always
   trusted.
-- Tests: `TerrainEditCheck`, `TerrainPriorityCheck`, `PlacedChildDeduperCheck`.
+- Floating-object pass no longer needs Python, PyNifly or SciPy: collision is read in-process with niflysharp,
+  checked against the old PyNifly output on 269 real meshes.
+- Tests: `TerrainEditCheck`, `TerrainPriorityCheck`, `PlacedChildDeduperCheck`, `CollisionCheck`.

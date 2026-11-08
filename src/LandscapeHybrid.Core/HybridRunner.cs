@@ -329,6 +329,7 @@ public static class HybridRunner
             var merged = MergeEngine.RunForResolvedPlugins(mergeOrder, sources, s.OutputPluginName, mergeOut, log,
                 dryRun: false, matchNeighborsToTrustedChain: s.MatchNeighborsToTrustedChain);
             var cells = merged.Stats.CellsFromOneSource + merged.Stats.CellsHeightAndTextureMerged;
+            if (merged.Stats.PlacedRefsForwarded > 0) log($"Merge also forwarded {merged.Stats.PlacedRefsForwarded} placed reference(s).");
             var outs = s.DryRun ? Array.Empty<string>() : merged.OutputPaths.ToArray();
             log(s.DryRun ? "Dry run: nothing written to the output folder." : $"Wrote {string.Join(", ", outs.Select(Path.GetFileName))}.");
             return new(true, seam, tex, road, flo, cells, outs, notes);

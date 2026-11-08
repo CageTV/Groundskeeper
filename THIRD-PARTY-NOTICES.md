@@ -15,11 +15,18 @@ is at <https://www.gnu.org/licenses/gpl-3.0.html>.
 
 Copyright (c) .NET Foundation and Contributors. Used to read road mask images.
 
-## PyNifly (GPL-3.0), optional and not bundled
+## niflysharp and nifly (GPL-3.0)
 
-The floating-object pass can use PyNifly (by BadDogSkyrim, <https://github.com/BadDogSkyrim/PyNifly>) to
-read mesh collision. It would run as a separate process, exchanging JSON over a pipe; it is **not**
-included in or linked into Groundskeeper.
+The floating-object pass reads NIF files and Havok collision with **niflysharp** 2.0.4 (C# bindings by
+SteveTownsend, <https://github.com/SteveTownsend/niflyswig>) of **nifly** (by ousnius,
+<https://github.com/ousnius/nifly>), licensed GPL-3.0. It ships with Groundskeeper as `nifly.dll` and
+`niflycpp.dll` next to the program, and is part of the combined work distributed under the GPL-3.0.
+
+## PyNifly (reference only)
+
+An earlier version of the floating-object pass used PyNifly (by BadDogSkyrim,
+<https://github.com/BadDogSkyrim/PyNifly>) through Python. That dependency is gone; PyNifly is no longer
+used or included. Its output was used once, as the reference to test the in-process reader against.
 
 ## Landscape Fixer by Cl3mus33
 

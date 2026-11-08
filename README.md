@@ -35,7 +35,7 @@ should win? The old tools answered it with a built-in trust list and then silent
 | **Seams** | Restores terrain (height, normals, vertex colour) and water that a later mod overwrote, only for the mods you ticked. Skips cells that have their own water plane or where placed objects would move, and reports them. |
 | **Texture layers** | Adds a small blend hint where neighbouring cells show a hard texture boundary. Optional; review these in game. |
 | **Roads** | Reconciles a road mod's terrain with the rest. Runs only if you name a road source plugin. |
-| **Floating objects** | Re-grounds floating or sunken placed references. Off by default. Mesh collision needs PyNifly and SciPy, which are **not** bundled. |
+| **Floating objects** | Re-grounds floating or sunken placed references, checking each against the real Havok collision of nearby meshes, read in-process (no Python needed). Off by default, and it flags many references, so read the log. |
 | **Terrain winners** | You set the order of conflicting mods; the highest wins. Written through the same safety checks as the seam pass. |
 | **Water mods** | Protects the water mods you tick (CS Water Mod, Water for ENB, RealisticWaterTwo, Simplicity of Sea and anything else with "water" in its name). Wherever another plugin overwrote one, its water is restored. The list is in priority order: first wins. |
 | **Merge** | Folds every pass into the single output plugin using the PatchForeman merge, including a guard that stops "Two records with the same FormKey" write errors. |
@@ -104,8 +104,10 @@ GroundskeeperCli --direct [--game=<install or Data folder>] --output=<folder> [o
 - **Not tested in-game.** Preview results are plans, not proof the cells look right.
 - **Vortex and "launched from MO2" are untested.** Direct mode was only run on a vanilla game folder
   with Creation Club.
-- **Floating objects needs PyNifly and SciPy** for mesh collision and they are not included, so
-  that pass is off by default.
+- **Floating objects** is off by default. It reads each mesh's real collision in-process (compressed
+  meshes, boxes, convex shapes, lists and transforms; capsules and spheres are skipped on purpose), but it
+  only moves references that are clearly floating and leaves deeply sunk ones alone as likely deliberate.
+  On the author's list it flagged 986 references and would correct 114: review before trusting it.
 - **Cells with their own water plane**, and cells where placed objects would move, are skipped for
   terrain reverts by design. They are listed in the log for a manual look.
 - **Water protection can touch many cells.** On the author's list, protecting one water mod restored
@@ -128,6 +130,7 @@ dotnet build src/LandscapeHybrid.Cli       # GroundskeeperCli.exe
 dotnet run --project tests/TerrainEditCheck
 dotnet run --project tests/TerrainPriorityCheck
 dotnet run --project tests/PlacedChildDeduperCheck
+dotnet run --project tests/CollisionCheck -- <reference.json>   # optional: compares against reference collision output; needs game meshes
 ```
 
 Needs the .NET 10 SDK. Libraries: Mutagen 0.54.4, System.Drawing.Common.

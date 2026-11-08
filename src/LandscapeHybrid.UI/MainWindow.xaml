@@ -107,7 +107,7 @@
                         <StackPanel>
                             <CheckBox x:Name="SeamsCheck" Content="Seams: repair height, normal and colour seams (and lost water) between cells" IsChecked="True"/>
                             <CheckBox x:Name="TexturesCheck" Content="Texture layers: repair texture boundaries between cells" IsChecked="True"/>
-                            <CheckBox x:Name="FloatingCheck" Content="Floating objects: re-ground floating and sunken references (needs PyNifly + SciPy for mesh collision)"/>
+                            <CheckBox x:Name="FloatingCheck" Content="Floating objects: re-ground floating and sunken references"/>
                             <CheckBox x:Name="NeighborsCheck" Content="Match neighbouring cells to the trusted terrain chain"/>
                             <CheckBox x:Name="NorthernCheck" Content="Trust Northern Roads terrain as a source"/>
                         </StackPanel>
