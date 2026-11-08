@@ -1,7 +1,7 @@
 using LandscapeHybrid;
 
 // Mod Organizer 2:   GroundskeeperCli --mo2 <instance> <profile> --output=<folder> [options]
-// Vortex / plain:    GroundskeeperCli --direct [--game=<install or Data folder>] --output=<folder> [options]
+// Vortex / plain:    GroundskeeperCli --direct [--game=<install or Data folder>] [--output=<folder>] [options]
 //   options: [--name=Groundskeeper.esp] [--no-seams] [--no-textures] [--floating] [--floating-threshold=96]
 //            [--floating-worldspace=Tamriel] [--road-plugin="Northern Roads.esp"] [--road-masks=<folder>]
 //            [--trust-northern-roads] [--trust-vanaheimr-roads] [--match-neighbors]
@@ -26,11 +26,11 @@ var direct = args.Length >= 1 && args[0] == "--direct";
 var planOnly = args.Contains("--plan");
 var waterReport = Arg(args, "--water-report");
 var problemMap = Arg(args, "--problem-map");
-if ((!mo2 && !direct) || (Arg(args, "--output") is null && !mo2 && !planOnly && waterReport is null && problemMap is null))
+if (!mo2 && !direct)
 {
     Console.WriteLine("Usage:");
     Console.WriteLine("  GroundskeeperCli --mo2 <instance> <profile> --output=<folder> [options]");
-    Console.WriteLine("  GroundskeeperCli --direct [--game=<install or Data folder>] --output=<folder> [options]   (Vortex or a plain install)");
+    Console.WriteLine("  GroundskeeperCli --direct [--game=<install or Data folder>] [--output=<folder>] [options]   (Vortex or a plain install)");
     Console.WriteLine("  options: --name= --no-seams --no-textures --floating --floating-threshold= --floating-worldspace=");
     Console.WriteLine("           --road-plugin= --road-masks= --trust-northern-roads --match-neighbors");
     Console.WriteLine("           --revert=<plugin> --water-mod=<plugin> --plan --write   (dry run unless --write)");

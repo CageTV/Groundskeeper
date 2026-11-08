@@ -123,34 +123,14 @@ public static class SeamFixer
         IReadOnlyList<string>? priorityOverNorthernRoadsPlugins = null,
         bool genuineWaterRestore = true)
     {
-        var mergedFolder = Path.Combine(Path.GetTempPath(), "SeamFixerMerged-" + Guid.NewGuid().ToString("N"));
-        log($"Staging {loadOrder.Count} plugin files into {mergedFolder} ...");
-        Mo2Resolver.MaterializeMergedFolder(loadOrder, mergedFolder);
-
-        try
-        {
-            var modKeys = loadOrder.Select(p => ModKey.FromFileName(p.FileName)).ToArray();
-            using var env = GameEnvironmentBuilder<ISkyrimMod, ISkyrimModGetter>
-                .Create(GameRelease.SkyrimSE)
-                .WithLoadOrder(modKeys)
-                .WithTargetDataFolder(mergedFolder)
-                .Build();
-
-            var priorityIndex = modKeys.Select((k, idx) => (k, idx)).ToDictionary(x => x.k, x => x.idx);
-            var mastersByPlugin = BuildMastersByPlugin(env.LoadOrder.ListedOrder);
-            return GenerateFixPluginCore(env.LinkCache, priorityIndex, mergedFolder, outputPluginName, outputDirectory, log, trustNorthernRoads, waterTrust ?? WaterTrustOptions.None, customTrustedPlugins ?? [], priorityOverNorthernRoadsPlugins ?? [], mastersByPlugin, genuineWaterRestore);
-        }
-        finally
-        {
-            try { Directory.Delete(mergedFolder, recursive: true); }
-            catch (Exception ex) { log($"(could not clean up temp folder {mergedFolder}: {ex.Message})"); }
-        }
+        using var session = SeamSession.Open(loadOrder, log);
+        return session.Run(outputPluginName, outputDirectory, log, trustNorthernRoads, waterTrust, customTrustedPlugins, priorityOverNorthernRoadsPlugins, genuineWaterRestore);
     }
 
     // ESP masters, keyed by filename (not ModKey - matches how every other
     // trust check in this file compares plugins) - the data-driven signal
     // HasMasterRelationship uses instead of guessing prefixes.
-    static Dictionary<string, HashSet<string>> BuildMastersByPlugin(IEnumerable<Mutagen.Bethesda.Plugins.Order.IModListingGetter<ISkyrimModGetter>> listedOrder)
+    internal static Dictionary<string, HashSet<string>> BuildMastersByPlugin(IEnumerable<Mutagen.Bethesda.Plugins.Order.IModListingGetter<ISkyrimModGetter>> listedOrder)
     {
         var result = new Dictionary<string, HashSet<string>>(StringComparer.OrdinalIgnoreCase);
         foreach (var listing in listedOrder)
@@ -191,7 +171,7 @@ public static class SeamFixer
         return GenerateFixPluginCore(env.LinkCache, priorityIndex, dataFolderPath, outputPluginName, outputDirectory, log, trustNorthernRoads, waterTrust ?? WaterTrustOptions.None, customTrustedPlugins ?? [], priorityOverNorthernRoadsPlugins ?? [], mastersByPlugin, genuineWaterRestore);
     }
 
-    static SeamFixResult GenerateFixPluginCore(
+    internal static SeamFixResult GenerateFixPluginCore(
         ILinkCache<ISkyrimMod, ISkyrimModGetter> linkCache,
         Dictionary<ModKey, int> priorityIndex,
         string dataFolderForWrite,
@@ -203,155 +183,49 @@ public static class SeamFixer
         IReadOnlyList<string> customTrustedPlugins,
         IReadOnlyList<string> priorityOverNorthernRoadsPlugins,
         Dictionary<string, HashSet<string>> mastersByPlugin,
-        bool genuineWaterRestore = true)
+        bool genuineWaterRestore = true,
+        bool planOnly = false,
+        List<IModContext<ISkyrimMod, ISkyrimModGetter, Cell, ICellGetter>>? cachedCells = null)
     {
         TrustResolver.SetMastersContext(mastersByPlugin, outputPluginName);
         var outputModKey = ModKey.FromNameAndExtension(outputPluginName);
         var patchMod = new SkyrimMod(outputModKey, SkyrimRelease.SkyrimSE);
 
+        var swCore = System.Diagnostics.Stopwatch.StartNew();
         int cellsPatched = 0;
         int cellsSkippedWater = 0;
         int cellsSkippedReference = 0;
         var verificationWarnings = new List<string>();
 
-        foreach (var context in linkCache.WinningContextOverrides<Cell, ICellGetter>(linkCache))
+        var cellContexts = cachedCells ?? linkCache.WinningContextOverrides<Cell, ICellGetter>(linkCache).ToList();
+        log($"[timing] cells enumerated ({cellContexts.Count}) {swCore.Elapsed.TotalSeconds:F1} s");
+        // Evaluating a cell only reads the load order, so it runs in parallel; applying the results (the patch writes and the
+        // log) is serial and in load-order order, so the output is identical to a single-threaded run.
+        var evals = new CellEval?[cellContexts.Count];
+        try
         {
-            var cell = context.Record;
-            if (cell.Grid is null) continue;
-            if (!context.TryGetParentSimpleContext<IWorldspaceGetter>(out var wsContext)) continue;
-            // Cell grid (X,Y) coordinates are per-worldspace, not global -
-            // Tamriel's (5,4) and Wyrmstooth's (5,4) are unrelated cells
-            // that just happen to share coordinates. A real load order
-            // carries ~89 worldspaces, so every log line naming bare (X,Y)
-            // needs to say which worldspace too.
-            var wsName = wsContext.Record.EditorID ?? wsContext.Record.FormKey.ToString();
-
-            var (landscape, ownerModKey) = HeightmapDecoder.ResolveWinningLandscape(cell.FormKey, linkCache, priorityIndex);
-            if (landscape?.VertexHeightMap is null) continue;
-
-            // The winning owner is already trusted - this IS the
-            // authoritative data, nothing to restore. A priority-override
-            // plugin counts as trusted here too (it's just ranked ABOVE
-            // Northern Roads/URF instead of below, in ResolveTrustedOnlyLandscape).
-            // With a user-ORDERED winner list (2+ entries) a priority plugin that currently wins can still be outranked by
-            // a higher entry, so it is not skipped here; the heights comparison below skips it when nothing differs.
-            var ownerIsPriority = TrustResolver.MatchesCustomTrust(ownerModKey.FileName, priorityOverNorthernRoadsPlugins);
-            if ((TrustResolver.IsBaseGamePlugin(ownerModKey.FileName, trustNorthernRoads, customTrustedPlugins) || ownerIsPriority)
-                && !(ownerIsPriority && priorityOverNorthernRoadsPlugins.Count > 1)) continue;
-
-            // Is there a trusted plugin's own repair for this exact cell
-            // that the actual winner has silently discarded? "Discarded"
-            // here doesn't require the untrusted winner to have made a
-            // deliberate edit - Creation Kit carries forward an ITM copy of
-            // whatever the winning chain had at the time a mod touches
-            // anything else in a cell (e.g. placing an NPC), so a mod that
-            // never meant to touch terrain at all can still end up "in
-            // front of" a trusted repair in load order and silently hide
-            // it. Either way, if the trusted plugin's data differs from
-            // what's actually winning, that repair isn't visible in-game
-            // right now.
-            var (trustedLandscape, trustedOwnerModKey) = ResolveTrustedOnlyLandscape(cell.FormKey, linkCache, priorityIndex, trustNorthernRoads, customTrustedPlugins, priorityOverNorthernRoadsPlugins);
-            if (trustedLandscape?.VertexHeightMap is null) continue; // no trusted data exists for this cell at all - nothing to restore
-
-            var actualHeights = HeightmapDecoder.DecodeHeights(landscape.VertexHeightMap);
-            var trustedHeights = HeightmapDecoder.DecodeHeights(trustedLandscape.VertexHeightMap);
-            if (HeightmapDecoder.HeightsMatch(actualHeights, trustedHeights)) continue; // ITM - already matches the trusted repair, nothing to restore
-
-            // Northern Roads reshapes terrain across the whole map, not as
-            // an isolated patch like the rest of the trusted list - the
-            // water/reference caution below exists for small, occasional
-            // repairs where leaving a rare conflicted cell unfixed is a
-            // fine trade. For a full road-network overhaul it isn't: it
-            // means entire stretches of road are left broken (confirmed in
-            // practice - several consecutive road cells right outside
-            // Whiterun all skipped for the same reference-move reason,
-            // producing a visibly disconnected road). The user explicitly
-            // opts into this per-run via trustNorthernRoads, so once that's
-            // on, Northern Roads' own restorations skip both safety gates
-            // below entirely - every OTHER trusted plugin still goes
-            // through them unchanged.
-            // Same reasoning applies to UniqueLocationsRiverwoodForest.esp
-            // (and its own "UniqueLocationsRiverwood -" patch family, see
-            // NonStandardPatchPrefixes) as to Northern Roads: it's a
-            // full-map landscape overhaul ("adding new hills, waterfalls,
-            // ruins... drastically changing the landscape", per its own
-            // Nexus page), not a narrow occasional patch - a carved
-            // river/gorge cell is EXPECTED to sit below the water plane
-            // (that's the point of the carve), so the water-safety gate's
-            // "don't strand the water" caution is backwards here: leaving
-            // vanilla's dry, above-water terrain in place is the actual bug.
-            // Confirmed in practice: cell (1,-13) has vanilla terrain 656
-            // units ABOVE this mod's carved floor at the vertex the player
-            // was standing on, well past the water plane either way -
-            // exactly the "solid ground where there should be a submerged
-            // gorge" symptom this whole investigation started from.
-            string trustedOwnerFileName = trustedOwnerModKey.FileName;
-            var isFullLandscapeOverhaul = trustedOwnerFileName.Equals("Northern Roads.esp", StringComparison.OrdinalIgnoreCase)
-                || (trustNorthernRoads && trustedOwnerFileName.StartsWith("Northern Roads -", StringComparison.OrdinalIgnoreCase))
-                || trustedOwnerFileName.Equals("UniqueLocationsRiverwoodForest.esp", StringComparison.OrdinalIgnoreCase)
-                || TrustResolver.IsPatchOfTrustedBase(trustedOwnerFileName, "UniqueLocationsRiverwoodForest.esp");
-            var isNorthernRoads = isFullLandscapeOverhaul;
-
-            // Water safety: this tool never touches Cell.Water/WaterHeight.
-            // A cell with its own water plane may have that water
-            // calibrated against whatever terrain is CURRENTLY winning;
-            // swapping the terrain out from under it without also fixing
-            // the water risks stranding it above or below the new ground.
-            var hasWater = (cell.WaterHeight.HasValue && cell.WaterHeight.Value < 1_000_000f)
-                || cell.Water.FormKeyNullable.HasValue;
-            if (hasWater && !isNorthernRoads)
+            Parallel.For(0, cellContexts.Count, new ParallelOptions { MaxDegreeOfParallelism = Math.Max(1, Environment.ProcessorCount - 1) }, i =>
             {
-                cellsSkippedWater++;
-                continue;
-            }
-
-            // Reference safety: a static reference (a wall piece, a rock,
-            // anything placed against the CURRENT terrain) doesn't move
-            // just because we restore different ground under it. Confirmed
-            // necessary in practice earlier this session (a vanilla
-            // ImpExtBldgStraight02 ruin piece ended up floating once its
-            // surrounding ground moved by several hundred units) - same
-            // risk here, just checked across the whole cell instead of a
-            // narrow blend band, since a full-cell swap can move ground
-            // anywhere in it, not just near an edge.
-            var cellOriginX = cell.Grid.Point.X * 4096f;
-            var cellOriginY = cell.Grid.Point.Y * 4096f;
-            var worstReferenceMove = 0f;
-            foreach (var r in cell.Persistent.Concat(cell.Temporary))
+                evals[i] = EvaluateCell(cellContexts[i], linkCache, priorityIndex, trustNorthernRoads, customTrustedPlugins, priorityOverNorthernRoadsPlugins);
+            });
+        }
+        catch (AggregateException ae) when (ae.InnerExceptions.Count > 0)
+        {
+            System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(ae.InnerExceptions[0]).Throw();
+        }
+        foreach (var ev in evals)
+        {
+            if (ev is null) continue;
+            if (ev.Kind == 1) { cellsSkippedWater++; continue; }
+            if (ev.Kind == 2) { cellsSkippedReference++; verificationWarnings.Add(ev.Text!); continue; }
+            if (!planOnly)
             {
-                if (r.Placement is null) continue;
-                var localX = r.Placement.Position.X - cellOriginX;
-                var localY = r.Placement.Position.Y - cellOriginY;
-                if (localX is < 0f or > 4096f || localY is < 0f or > 4096f) continue;
-                var vx = Math.Clamp((int)Math.Round(localX / 128f), 0, 32);
-                var vy = Math.Clamp((int)Math.Round(localY / 128f), 0, 32);
-                var moved = Math.Abs(trustedHeights[vx, vy] - actualHeights[vx, vy]);
-                if (moved > worstReferenceMove) worstReferenceMove = moved;
+                var writableCell = ev.Context.GetOrAddAsOverride(patchMod);
+                foreach (var p in ev.Context.Record.Persistent) writableCell.Persistent.Add((IPlaced)p.DeepCopy());
+                foreach (var t in ev.Context.Record.Temporary) writableCell.Temporary.Add((IPlaced)t.DeepCopy());
+                writableCell.Landscape = ev.Trusted!.DeepCopy();
             }
-            if (worstReferenceMove > 20f && !isNorthernRoads)
-            {
-                cellsSkippedReference++;
-                verificationWarnings.Add($"[{wsName}] ({cell.Grid.Point.X},{cell.Grid.Point.Y}): skipped - restoring {trustedOwnerModKey.FileName}'s terrain would move a placed reference's ground by {worstReferenceMove:F0} units");
-                continue;
-            }
-
-            // The actual fix: no blending, no computed normals - just
-            // carry the trusted plugin's own Landscape record forward
-            // verbatim, exactly as it authored it. Written under the TRUE
-            // winning Cell's own context (not the trusted plugin's), so
-            // whichever plugin actually won the Cell overall (e.g. by
-            // placing an NPC) keeps owning its Persistent/Temporary lists -
-            // only the Landscape sub-record is replaced.
-            var writableCell = context.GetOrAddAsOverride(patchMod);
-            foreach (var p in context.Record.Persistent) writableCell.Persistent.Add((IPlaced)p.DeepCopy());
-            foreach (var t in context.Record.Temporary) writableCell.Temporary.Add((IPlaced)t.DeepCopy());
-            writableCell.Landscape = trustedLandscape.DeepCopy();
-
-            var (maxDiff, atX, atY) = HeightmapDecoder.MaxHeightDiff(actualHeights, trustedHeights);
-            var bypassNote = isFullLandscapeOverhaul && (hasWater || worstReferenceMove > 20f)
-                ? $" [full-overhaul bypass: {(hasWater ? "has its own water plane" : $"would move a reference by {worstReferenceMove:F0} units")}, restored anyway]"
-                : "";
-            log($"  Restored [{wsName}] ({cell.Grid.Point.X},{cell.Grid.Point.Y}): {ownerModKey.FileName} had overwritten {trustedOwnerModKey.FileName}'s terrain by up to {maxDiff:F0} units (worst at vertex ({atX},{atY})){bypassNote}");
+            log(ev.Text!);
             cellsPatched++;
         }
 
@@ -388,46 +262,63 @@ public static class SeamFixer
         // different question than the named-water-mod system) and runs
         // FIRST so that system, when the user has enabled it, still gets
         // final say over any cell it also has an opinion on.
+        log($"[timing] cell loop {swCore.Elapsed.TotalSeconds:F1} s");
         int cellsGenuineWaterRestored = 0;
-        foreach (var context in linkCache.WinningContextOverrides<Cell, ICellGetter>(linkCache))
+        if (genuineWaterRestore)
         {
-            var cell = context.Record;
-            if (cell.Grid is null) continue;
-
-            if (!genuineWaterRestore) break; // hybrid: water is only restored for water mods the user ticked
-            // Only an UNTRUSTED winner can have 'lost' trusted water: a trusted plugin (official DLC, CC, patch) winning the cell is authoritative.
-            if (TrustResolver.IsBaseGamePlugin(context.ModKey.FileName, trustNorthernRoads, customTrustedPlugins)) continue;
-            var genuineWater = ResolveGenuineTrustedWaterForCell(cell.FormKey, linkCache, priorityIndex, trustNorthernRoads, customTrustedPlugins);
-            if (genuineWater is null) continue;
-            if (context.ModKey.Equals(genuineWater.Value.OwnerModKey)) continue; // trusted source already wins this cell outright
-
-            // Only actually restore if the CURRENT winner's water really
-            // differs from what the trusted source has - avoids a no-op
-            // override for a cell that happens to already match.
-            var currentHasLink = cell.Water.FormKeyNullable.HasValue;
-            var matches = currentHasLink == genuineWater.Value.HasWaterLink
-                && cell.WaterHeight == genuineWater.Value.WaterHeight
-                && cell.Water.FormKeyNullable == genuineWater.Value.Water?.FormKeyNullable;
-            if (matches) continue;
-
-            if (!context.TryGetParentSimpleContext<IWorldspaceGetter>(out var wsContext)) continue;
-            var wsName = wsContext.Record.EditorID ?? wsContext.Record.FormKey.ToString();
-
-            var writableCell = context.GetOrAddAsOverride(patchMod);
-            if (writableCell.Persistent.Count == 0 && writableCell.Temporary.Count == 0 && context.Record.Persistent.Count + context.Record.Temporary.Count > 0)
+            var genuine = new (IModContext<ISkyrimMod, ISkyrimModGetter, ICell, ICellGetter> Context, (bool HasWaterFlag, bool HasWaterLink, IFormLinkNullableGetter<IWaterGetter>? Water, float? WaterHeight, ModKey OwnerModKey) Water, string WsName)?[cellContexts.Count];
+            try
             {
-                // Same reasoning as the existing water pass below - a brand
-                // new override needs its object lists carried forward too.
-                foreach (var p in context.Record.Persistent) writableCell.Persistent.Add((IPlaced)p.DeepCopy());
-                foreach (var t in context.Record.Temporary) writableCell.Temporary.Add((IPlaced)t.DeepCopy());
+                Parallel.For(0, cellContexts.Count, new ParallelOptions { MaxDegreeOfParallelism = Math.Max(1, Environment.ProcessorCount - 1) }, i =>
+                {
+                    var context = cellContexts[i];
+                    var cell = context.Record;
+                    if (cell.Grid is null) return;
+                    // Only an UNTRUSTED winner can have 'lost' trusted water: a trusted plugin (official DLC, CC, patch) winning the cell is authoritative.
+                    if (TrustResolver.IsBaseGamePlugin(context.ModKey.FileName, trustNorthernRoads, customTrustedPlugins)) return;
+                    var genuineWater = ResolveGenuineTrustedWaterForCell(cell.FormKey, linkCache, priorityIndex, trustNorthernRoads, customTrustedPlugins);
+                    if (genuineWater is null) return;
+                    if (context.ModKey.Equals(genuineWater.Value.OwnerModKey)) return; // trusted source already wins this cell outright
+
+                    // Only actually restore if the CURRENT winner's water really differs from what the trusted source has.
+                    var currentHasLink = cell.Water.FormKeyNullable.HasValue;
+                    var matches = currentHasLink == genuineWater.Value.HasWaterLink
+                        && cell.WaterHeight == genuineWater.Value.WaterHeight
+                        && cell.Water.FormKeyNullable == genuineWater.Value.Water?.FormKeyNullable;
+                    if (matches) return;
+
+                    if (!context.TryGetParentSimpleContext<IWorldspaceGetter>(out var wsContext)) return;
+                    genuine[i] = (context, genuineWater.Value, wsContext.Record.EditorID ?? wsContext.Record.FormKey.ToString());
+                });
             }
+            catch (AggregateException ae) when (ae.InnerExceptions.Count > 0)
+            {
+                System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(ae.InnerExceptions[0]).Throw();
+            }
+            foreach (var g in genuine)
+            {
+                if (g is null) continue;
+                var (context, genuineWater, wsName) = g.Value;
+                var cell = context.Record;
+                if (!planOnly)
+                {
+                    var writableCell = context.GetOrAddAsOverride(patchMod);
+                    if (writableCell.Persistent.Count == 0 && writableCell.Temporary.Count == 0 && context.Record.Persistent.Count + context.Record.Temporary.Count > 0)
+                    {
+                        // Same reasoning as the existing water pass below - a brand
+                        // new override needs its object lists carried forward too.
+                        foreach (var p in context.Record.Persistent) writableCell.Persistent.Add((IPlaced)p.DeepCopy());
+                        foreach (var t in context.Record.Temporary) writableCell.Temporary.Add((IPlaced)t.DeepCopy());
+                    }
 
-            if (genuineWater.Value.HasWaterFlag) writableCell.Flags |= Cell.Flag.HasWater;
-            if (genuineWater.Value.HasWaterLink) writableCell.Water = genuineWater.Value.Water!.AsSetter().AsNullable();
-            writableCell.WaterHeight = genuineWater.Value.WaterHeight;
+                    if (genuineWater.HasWaterFlag) writableCell.Flags |= Cell.Flag.HasWater;
+                    if (genuineWater.HasWaterLink) writableCell.Water = genuineWater.Water!.AsSetter().AsNullable();
+                    writableCell.WaterHeight = genuineWater.WaterHeight;
+                }
 
-            log($"  Restored genuine water [{wsName}] ({cell.Grid.Point.X},{cell.Grid.Point.Y}): {context.ModKey.FileName} had lost {genuineWater.Value.OwnerModKey.FileName}'s water data");
-            cellsGenuineWaterRestored++;
+                log($"  Restored genuine water [{wsName}] ({cell.Grid!.Point.X},{cell.Grid.Point.Y}): {context.ModKey.FileName} had lost {genuineWater.OwnerModKey.FileName}'s water data");
+                cellsGenuineWaterRestored++;
+            }
         }
         if (cellsGenuineWaterRestored > 0)
             log($"Restored genuinely-trusted water in {cellsGenuineWaterRestored} cell(s) (independent of the named-water-mod system below).");
@@ -492,14 +383,19 @@ public static class SeamFixer
             log($"Restored water in {cellsWaterPatched} cell(s) and {worldspacesWaterPatched} worldspace(s).");
         }
 
-        Directory.CreateDirectory(outputDirectory);
+        log($"[timing] water passes done {swCore.Elapsed.TotalSeconds:F1} s");
         var outputPath = Path.Combine(outputDirectory, outputPluginName);
+        IReadOnlyList<string> writtenPlugins = Array.Empty<string>();
+        if (!planOnly) // a plan only needs the log: nothing is written
+        {
+            Directory.CreateDirectory(outputDirectory);
+            var eslResult = EslEligibility.CheckAndFlag(patchMod);
+            log(eslResult.Summary);
 
-        var eslResult = EslEligibility.CheckAndFlag(patchMod);
-        log(eslResult.Summary);
-
-        log($"Writing patch plugin to {outputPath} ...");
-        var writtenPlugins = PluginSplitWriter.Write(patchMod, outputPath, dataFolderForWrite, log);
+            log($"Writing patch plugin to {outputPath} ...");
+            writtenPlugins = PluginSplitWriter.Write(patchMod, outputPath, dataFolderForWrite, log);
+            log($"[timing] written {swCore.Elapsed.TotalSeconds:F1} s");
+        }
 
         log($"Restored {cellsPatched} cell(s) to their trusted plugin's terrain" +
             (cellsSkippedWater > 0 ? $"; skipped {cellsSkippedWater} with their own water plane" : "") +
@@ -510,6 +406,157 @@ public static class SeamFixer
             foreach (var w in verificationWarnings) log("  " + w);
         }
         return new SeamFixResult(cellsPatched, cellsPatched, outputPath, 0f, verificationWarnings, writtenPlugins);
+    }
+
+    sealed class CellEval
+    {
+        public CellEval(IModContext<ISkyrimMod, ISkyrimModGetter, ICell, ICellGetter> context, int kind) { Context = context; Kind = kind; }
+        public IModContext<ISkyrimMod, ISkyrimModGetter, ICell, ICellGetter> Context { get; }
+        public int Kind { get; }              // 1 = skipped (own water plane), 2 = skipped (reference would move), 3 = restore
+        public string? Text { get; init; }    // the log line, or the skip warning
+        public ILandscapeGetter? Trusted { get; init; }
+    }
+
+    static CellEval? EvaluateCell(
+        IModContext<ISkyrimMod, ISkyrimModGetter, ICell, ICellGetter> context,
+        ILinkCache<ISkyrimMod, ISkyrimModGetter> linkCache,
+        Dictionary<ModKey, int> priorityIndex,
+        bool trustNorthernRoads,
+        IReadOnlyList<string> customTrustedPlugins,
+        IReadOnlyList<string> priorityOverNorthernRoadsPlugins)
+    {
+            var cell = context.Record;
+            if (cell.Grid is null) return null;
+            if (!context.TryGetParentSimpleContext<IWorldspaceGetter>(out var wsContext)) return null;
+            // Cell grid (X,Y) coordinates are per-worldspace, not global -
+            // Tamriel's (5,4) and Wyrmstooth's (5,4) are unrelated cells
+            // that just happen to share coordinates. A real load order
+            // carries ~89 worldspaces, so every log line naming bare (X,Y)
+            // needs to say which worldspace too.
+            var wsName = wsContext.Record.EditorID ?? wsContext.Record.FormKey.ToString();
+
+            var (landscape, ownerModKey) = HeightmapDecoder.ResolveWinningLandscape(cell.FormKey, linkCache, priorityIndex);
+            if (landscape?.VertexHeightMap is null) return null;
+
+            // The winning owner is already trusted - this IS the
+            // authoritative data, nothing to restore. A priority-override
+            // plugin counts as trusted here too (it's just ranked ABOVE
+            // Northern Roads/URF instead of below, in ResolveTrustedOnlyLandscape).
+            // With a user-ORDERED winner list (2+ entries) a priority plugin that currently wins can still be outranked by
+            // a higher entry, so it is not skipped here; the heights comparison below skips it when nothing differs.
+            var ownerIsPriority = TrustResolver.MatchesCustomTrust(ownerModKey.FileName, priorityOverNorthernRoadsPlugins);
+            if ((TrustResolver.IsBaseGamePlugin(ownerModKey.FileName, trustNorthernRoads, customTrustedPlugins) || ownerIsPriority)
+                && !(ownerIsPriority && priorityOverNorthernRoadsPlugins.Count > 1)) return null;
+
+            // Is there a trusted plugin's own repair for this exact cell
+            // that the actual winner has silently discarded? "Discarded"
+            // here doesn't require the untrusted winner to have made a
+            // deliberate edit - Creation Kit carries forward an ITM copy of
+            // whatever the winning chain had at the time a mod touches
+            // anything else in a cell (e.g. placing an NPC), so a mod that
+            // never meant to touch terrain at all can still end up "in
+            // front of" a trusted repair in load order and silently hide
+            // it. Either way, if the trusted plugin's data differs from
+            // what's actually winning, that repair isn't visible in-game
+            // right now.
+            var (trustedLandscape, trustedOwnerModKey) = ResolveTrustedOnlyLandscape(cell.FormKey, linkCache, priorityIndex, trustNorthernRoads, customTrustedPlugins, priorityOverNorthernRoadsPlugins);
+            if (trustedLandscape?.VertexHeightMap is null) return null; // no trusted data exists for this cell at all - nothing to restore
+
+            var actualHeights = HeightmapDecoder.DecodeHeights(landscape.VertexHeightMap);
+            var trustedHeights = HeightmapDecoder.DecodeHeights(trustedLandscape.VertexHeightMap);
+            if (HeightmapDecoder.HeightsMatch(actualHeights, trustedHeights)) return null; // ITM - already matches the trusted repair, nothing to restore
+
+            // Northern Roads reshapes terrain across the whole map, not as
+            // an isolated patch like the rest of the trusted list - the
+            // water/reference caution below exists for small, occasional
+            // repairs where leaving a rare conflicted cell unfixed is a
+            // fine trade. For a full road-network overhaul it isn't: it
+            // means entire stretches of road are left broken (confirmed in
+            // practice - several consecutive road cells right outside
+            // Whiterun all skipped for the same reference-move reason,
+            // producing a visibly disconnected road). The user explicitly
+            // opts into this per-run via trustNorthernRoads, so once that's
+            // on, Northern Roads' own restorations skip both safety gates
+            // below entirely - every OTHER trusted plugin still goes
+            // through them unchanged.
+            // Same reasoning applies to UniqueLocationsRiverwoodForest.esp
+            // (and its own "UniqueLocationsRiverwood -" patch family, see
+            // NonStandardPatchPrefixes) as to Northern Roads: it's a
+            // full-map landscape overhaul ("adding new hills, waterfalls,
+            // ruins... drastically changing the landscape", per its own
+            // Nexus page), not a narrow occasional patch - a carved
+            // river/gorge cell is EXPECTED to sit below the water plane
+            // (that's the point of the carve), so the water-safety gate's
+            // "don't strand the water" caution is backwards here: leaving
+            // vanilla's dry, above-water terrain in place is the actual bug.
+            // Confirmed in practice: cell (1,-13) has vanilla terrain 656
+            // units ABOVE this mod's carved floor at the vertex the player
+            // was standing on, well past the water plane either way -
+            // exactly the "solid ground where there should be a submerged
+            // gorge" symptom this whole investigation started from.
+            string trustedOwnerFileName = trustedOwnerModKey.FileName;
+            var isFullLandscapeOverhaul = trustedOwnerFileName.Equals("Northern Roads.esp", StringComparison.OrdinalIgnoreCase)
+                || (trustNorthernRoads && trustedOwnerFileName.StartsWith("Northern Roads -", StringComparison.OrdinalIgnoreCase))
+                || trustedOwnerFileName.Equals("UniqueLocationsRiverwoodForest.esp", StringComparison.OrdinalIgnoreCase)
+                || TrustResolver.IsPatchOfTrustedBase(trustedOwnerFileName, "UniqueLocationsRiverwoodForest.esp");
+            var isNorthernRoads = isFullLandscapeOverhaul;
+
+            // Water safety: this tool never touches Cell.Water/WaterHeight.
+            // A cell with its own water plane may have that water
+            // calibrated against whatever terrain is CURRENTLY winning;
+            // swapping the terrain out from under it without also fixing
+            // the water risks stranding it above or below the new ground.
+            var hasWater = (cell.WaterHeight.HasValue && cell.WaterHeight.Value < 1_000_000f)
+                || cell.Water.FormKeyNullable.HasValue;
+            if (hasWater && !isNorthernRoads)
+            {
+                return new CellEval(context, 1);
+            }
+
+            // Reference safety: a static reference (a wall piece, a rock,
+            // anything placed against the CURRENT terrain) doesn't move
+            // just because we restore different ground under it. Confirmed
+            // necessary in practice earlier this session (a vanilla
+            // ImpExtBldgStraight02 ruin piece ended up floating once its
+            // surrounding ground moved by several hundred units) - same
+            // risk here, just checked across the whole cell instead of a
+            // narrow blend band, since a full-cell swap can move ground
+            // anywhere in it, not just near an edge.
+            var cellOriginX = cell.Grid.Point.X * 4096f;
+            var cellOriginY = cell.Grid.Point.Y * 4096f;
+            var worstReferenceMove = 0f;
+            foreach (var r in cell.Persistent.Concat(cell.Temporary))
+            {
+                if (r.Placement is null) return null;
+                var localX = r.Placement.Position.X - cellOriginX;
+                var localY = r.Placement.Position.Y - cellOriginY;
+                if (localX is < 0f or > 4096f || localY is < 0f or > 4096f) return null;
+                var vx = Math.Clamp((int)Math.Round(localX / 128f), 0, 32);
+                var vy = Math.Clamp((int)Math.Round(localY / 128f), 0, 32);
+                var moved = Math.Abs(trustedHeights[vx, vy] - actualHeights[vx, vy]);
+                if (moved > worstReferenceMove) worstReferenceMove = moved;
+            }
+            if (worstReferenceMove > 20f && !isNorthernRoads)
+            {
+                return new CellEval(context, 2) { Text = $"[{wsName}] ({cell.Grid.Point.X},{cell.Grid.Point.Y}): skipped - restoring {trustedOwnerModKey.FileName}'s terrain would move a placed reference's ground by {worstReferenceMove:F0} units" };
+            }
+
+            // The actual fix: no blending, no computed normals - just
+            // carry the trusted plugin's own Landscape record forward
+            // verbatim, exactly as it authored it. Written under the TRUE
+            // winning Cell's own context (not the trusted plugin's), so
+            // whichever plugin actually won the Cell overall (e.g. by
+            // placing an NPC) keeps owning its Persistent/Temporary lists -
+            // only the Landscape sub-record is replaced.
+        var (maxDiff, atX, atY) = HeightmapDecoder.MaxHeightDiff(actualHeights, trustedHeights);
+        var bypassNote = isFullLandscapeOverhaul && (hasWater || worstReferenceMove > 20f)
+            ? $" [full-overhaul bypass: {(hasWater ? "has its own water plane" : $"would move a reference by {worstReferenceMove:F0} units")}, restored anyway]"
+            : "";
+        return new CellEval(context, 3)
+        {
+            Text = $"  Restored [{wsName}] ({cell.Grid.Point.X},{cell.Grid.Point.Y}): {ownerModKey.FileName} had overwritten {trustedOwnerModKey.FileName}'s terrain by up to {maxDiff:F0} units (worst at vertex ({atX},{atY})){bypassNote}",
+            Trusted = trustedLandscape,
+        };
     }
 
     // ResolveWinningLandscape now lives in HeightmapDecoder.cs, shared with

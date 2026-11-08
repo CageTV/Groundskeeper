@@ -134,7 +134,7 @@
                                 <TextBox Grid.Column="1" x:Name="PluginNameBox" Text="Groundskeeper.esp"/>
                             </Grid>
                             <TextBlock Style="{StaticResource Hint}" Margin="0,4,0,0" TextWrapping="Wrap">
-                                In Mod Organizer 2, leave this empty and a "Groundskeeper Output" mod folder is created in your mods folder for you. Otherwise use a dedicated folder. Only this tool's own plugin names in it are ever replaced.
+                                In Mod Organizer 2, leave this empty and a "Groundskeeper Output" mod folder is created in your mods folder for you. With Vortex or a plain install, leave it empty and the plugin is written straight into the game's Data folder. Only this tool's own plugin names in it are ever replaced.
                             </TextBlock>
                         </StackPanel>
                     </GroupBox>

@@ -6,10 +6,8 @@ Groundskeeper links the Mutagen libraries (Mutagen.Bethesda.Skyrim and its depen
 Noggog) by Noggog and the Mutagen-Modding contributors, licensed under the GNU General Public License,
 version 3 only. <https://github.com/Mutagen-Modding/Mutagen>
 
-Because a built Groundskeeper links Mutagen, **the built program is distributed under GPL-3.0**. You
-may use, study, change and share it under those terms. The full source of this project is available in
-this repository, which is the "Corresponding Source" for any binary built from it. The full licence text
-is at <https://www.gnu.org/licenses/gpl-3.0.html>.
+Mutagen keeps its own licence and is not relicensed by Groundskeeper's licence. Its terms are at
+<https://www.gnu.org/licenses/gpl-3.0.html>.
 
 ## System.Drawing.Common (MIT)
 
@@ -20,7 +18,7 @@ Copyright (c) .NET Foundation and Contributors. Used to read road mask images.
 The floating-object pass reads NIF files and Havok collision with **niflysharp** 2.0.4 (C# bindings by
 SteveTownsend, <https://github.com/SteveTownsend/niflyswig>) of **nifly** (by ousnius,
 <https://github.com/ousnius/nifly>), licensed GPL-3.0. It ships with Groundskeeper as `nifly.dll` and
-`niflycpp.dll` next to the program, and is part of the combined work distributed under the GPL-3.0.
+`niflycpp.dll` next to the program. It keeps its own licence.
 
 ## PyNifly (reference only)
 

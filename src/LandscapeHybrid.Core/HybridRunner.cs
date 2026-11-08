@@ -128,10 +128,7 @@ public static partial class HybridRunner
         }
         else
         {
-            string data;
-            if (!string.IsNullOrWhiteSpace(s.GameDataPath)) data = Mo2Resolver.NormalizeGameDataPath(s.GameDataPath);
-            else if (DetectGameData() is { } found) data = found;
-            else throw new InvalidOperationException("Pick the Skyrim install folder (or its Data folder): it could not be found automatically.");
+            var data = DirectDataFolder(s);
             if (!File.Exists(Path.Combine(data, "Skyrim.esm")))
                 throw new InvalidOperationException($"Skyrim.esm was not found in '{data}'. Pick the game's Data folder (Vortex deploys its mods into it).");
             all = new();
@@ -150,6 +147,14 @@ public static partial class HybridRunner
                      && !IsOwnOutput(p.FileName, s.OutputPluginName))
             .ToList();
         return new Env(all, baseOrder, asset);
+    }
+
+    /// <summary>Direct / Vortex: the game's Data folder, from the chosen game folder or found automatically.</summary>
+    public static string DirectDataFolder(HybridSettings s)
+    {
+        if (!string.IsNullOrWhiteSpace(s.GameDataPath)) return Mo2Resolver.NormalizeGameDataPath(s.GameDataPath);
+        if (DetectGameData() is { } found) return found;
+        throw new InvalidOperationException("Pick the Skyrim install folder (or its Data folder): it could not be found automatically.");
     }
 
     /// <summary>Finds every plugin that currently overwrites terrain or water a trusted plugin authored, and what it would
@@ -185,6 +190,9 @@ public static partial class HybridRunner
         var found = new Dictionary<string, (int Cells, int Max, string To, List<string> Samples)>(StringComparer.OrdinalIgnoreCase);
         var water = new Dictionary<string, (int Cells, string To)>(StringComparer.OrdinalIgnoreCase);
         int skippedWater = 0, skippedRef = 0;
+        SeamSession? session = null;
+        try
+        {
         for (var pass = 1; pass <= 8; pass++)
         {
             var trusted = found.Keys.Where(k => !revert.Contains(k)).Concat(winnersList).Concat(TrustedFamilies(s)).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
@@ -195,19 +203,16 @@ public static partial class HybridRunner
             lock (PlanCache) PlanCache.TryGetValue(key, out lines!);
             if (lines is null)
             {
-                var staging = Path.Combine(Path.GetTempPath(), "GroundskeeperPlan-" + Guid.NewGuid().ToString("N"));
-                Directory.CreateDirectory(staging);
                 lines = new List<string>();
-                try
-                {
-                    SeamFixer.GenerateFixPluginForResolvedPlugins(baseOrder, "LandscapeSeamPlan.esp", staging,
-                        m => lines.Add(m), s.TrustNorthernRoads, waterTrust: WaterOptions(s), customTrustedPlugins: trusted,
-                        priorityOverNorthernRoadsPlugins: winnersList);
-                }
-                finally { try { Directory.Delete(staging, recursive: true); } catch { /* scratch in %TEMP% */ } }
+                // One staged copy + environment serves every pass of this plan; only the trust inputs change between passes,
+                // and nothing is built or written (the log is all the plan reads).
+                session ??= SeamSession.Open(baseOrder, m => lines.Add(m));
+                session.Run("LandscapeSeamPlan.esp", Path.GetTempPath(), m => lines.Add(m), s.TrustNorthernRoads, waterTrust: WaterOptions(s),
+                    customTrustedPlugins: trusted, priorityOverNorthernRoadsPlugins: winnersList, planOnly: true);
                 lock (PlanCache) { if (PlanCache.Count >= 32) PlanCache.Clear(); PlanCache[key] = lines; }
             }
 
+            foreach (var tl in lines.Where(l => l.StartsWith("[timing]"))) log($"  plan pass {pass} {tl}");
             var added = 0;
             var thisPass = new Dictionary<string, (int Cells, int Max, string To, List<string> Samples)>(StringComparer.OrdinalIgnoreCase);
             var thisWater = new Dictionary<string, (int Cells, string To)>(StringComparer.OrdinalIgnoreCase);
@@ -247,7 +252,9 @@ public static partial class HybridRunner
             }
             if (added == 0) break;
         }
-        var winners = new HashSet<string>(winnersList, StringComparer.OrdinalIgnoreCase);
+        }
+        finally { session?.Dispose(); }
+        var winners =new HashSet<string>(winnersList, StringComparer.OrdinalIgnoreCase);
         var list = found.Where(kv => !winners.Contains(kv.Key)).Select(kv =>
             {
                 water.TryGetValue(kv.Key, out var w);
@@ -333,9 +340,16 @@ public static partial class HybridRunner
             s.OutputDirectory = Mo2InstanceFinder.DefaultOutputFolder(s.Mo2InstancePath);
             log($"No output folder chosen: using the mod folder {s.OutputDirectory} (created if it does not exist; refresh MO2 to see it).");
         }
-        if (!s.DryRun)
+        var direct = s.ModManager != ModManager.ModOrganizer2;
+        // Without a mod manager the plugin has to sit in the game's Data folder to load, so that is the default and it is allowed.
+        if (direct && string.IsNullOrWhiteSpace(s.OutputDirectory))
         {
-            // Generate writes into the output folder: refuse the game's own Data folder or anything that looks like it.
+            s.OutputDirectory = DirectDataFolder(s);
+            log($"No output folder chosen: writing straight into the game's Data folder, {s.OutputDirectory}.");
+        }
+        if (!s.DryRun && !direct)
+        {
+            // MO2 keeps the Data folder clean (its mods are virtual): refuse the game's own Data folder or anything that looks like it.
             var full = Path.GetFullPath(s.OutputDirectory).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
             if (File.Exists(Path.Combine(full, "Skyrim.esm")) || (Directory.Exists(Path.Combine(full, "Data")) && File.Exists(Path.Combine(full, "SkyrimSE.exe")))
                 || string.Equals(Path.GetFileName(full), "Data", StringComparison.OrdinalIgnoreCase))
@@ -450,6 +464,8 @@ public static partial class HybridRunner
             if (merged.Stats.PlacedRefsForwarded > 0) log($"Merge also forwarded {merged.Stats.PlacedRefsForwarded} placed reference(s).");
             var outs = s.DryRun ? Array.Empty<string>() : merged.OutputPaths.ToArray();
             log(s.DryRun ? "Dry run: nothing written to the output folder." : $"Wrote {string.Join(", ", outs.Select(Path.GetFileName))}.");
+            if (!s.DryRun && direct && outs.Length > 0)
+                notes.Add($"Written into {s.OutputDirectory}. Make sure {string.Join(", ", outs.Select(Path.GetFileName))} is ticked in your plugin list (Vortex, or the game's launcher) and loads after the plugins it fixes.");
             return new(true, seam, tex, road, flo, cells, outs, notes);
         }
         finally

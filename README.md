@@ -169,6 +169,6 @@ Needs the .NET 10 SDK. Libraries: Mutagen 0.54.4, System.Drawing.Common.
 
 ## Credits and licence
 
-See [CREDITS.md](CREDITS.md) and [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md). Source files are
-MIT ([LICENSE](LICENSE)); the combined program links Mutagen, which is GPL-3.0, so a built
-Groundskeeper is distributed under the GPL-3.0.
+See [CREDITS.md](CREDITS.md) and [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md). Groundskeeper is
+licensed CC BY-NC-SA 4.0 ([LICENSE](LICENSE)), like the other Landscape tools: free to use, share and adapt
+with credit, not for sale or any commercial use. The libraries it uses keep their own licences.

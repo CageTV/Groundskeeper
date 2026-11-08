@@ -249,7 +249,12 @@ public partial class MainWindow : Window
     // the same idea as Landscape Fixer's "LandscapeFixer Output" mod folder. The folder itself is created when Generate runs.
     void UpdateDefaultOutput()
     {
-        if (ModeDirect.IsChecked == true) return;
+        if (ModeDirect.IsChecked == true)
+        {
+            // the MO2 default means nothing here: empty = the game's Data folder
+            if (_lastDefaultOutput is { Length: > 0 } && OutputBox.Text.Trim().Equals(_lastDefaultOutput, StringComparison.OrdinalIgnoreCase)) OutputBox.Text = "";
+            return;
+        }
         var inst = InstanceBox.Text.Trim();
         if (inst.Length == 0 || !File.Exists(Path.Combine(inst, "ModOrganizer.ini"))) return;
         var def = Mo2InstanceFinder.DefaultOutputFolder(inst);
@@ -519,7 +524,6 @@ public partial class MainWindow : Window
             if (!File.Exists(Path.Combine(s.Mo2InstancePath, "ModOrganizer.ini"))) return "Pick your MO2 instance folder (the one holding ModOrganizer.ini).";
             if (s.Mo2Profile == "") return "Pick an MO2 profile.";
         }
-        if (needOutput && s.OutputDirectory == "" && s.ModManager != ModManager.ModOrganizer2) return "Pick an output folder (a dedicated folder, not your Data folder).";
         if (needOutput && !s.OutputPluginName.EndsWith(".esp", StringComparison.OrdinalIgnoreCase)) return "The plugin name must end in .esp.";
         if (!s.Seams && !s.TextureLayers && !s.Floating && s.RoadSourcePlugin == "") return "Switch on at least one pass.";
         if (s.RoadSourcePlugin != "" && HybridRunner.CheckRoadInputs(s.RoadSourcePlugin, s.RoadMaskFolder, s.RoadWorldspace) is { } roadProblem && roadProblem.StartsWith("Problem")) return roadProblem;
