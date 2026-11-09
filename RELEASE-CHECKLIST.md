@@ -20,7 +20,7 @@ State as of 2026-11-08 (release candidate 2). The code is pushed to GitHub; noth
 2. **Vortex / plain install** mode is untested on a real Vortex setup (the author does not use Vortex): it reads the game's Data folder and, with no output folder chosen, writes the plugin straight into it. A dry run on a vanilla Data folder works. **Launching from MO2's executables list** was tested by the author and works.
 3. **Roads pass** has not run on real road data.
 4. **Water seam** marks are candidates only; no automatic fix exists.
-5. ~~Mouse behaviour of the problem map and 3D view~~ tried by the author on 2026-11-08: the 3D view works and the controls feel good with a high-DPI mouse. The 2D map's mouse behaviour was not reported separately.
+5. ~~Mouse behaviour of the problem map and 3D view~~ tried by the author on 2026-11-08: the 3D view works and the controls feel good with a high-DPI mouse. Clicking a floating object selects it and its `player.moveto` command puts the player on it (tried in game, 2026-11-08). The 2D map's mouse behaviour was not reported separately.
 
 ## Decisions for the author
 
