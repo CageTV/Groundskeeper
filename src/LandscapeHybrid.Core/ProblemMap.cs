@@ -17,6 +17,8 @@ public sealed record ProblemMark(string Worldspace, int X, int Y, int X2, int Y2
     public double? WorldY { get; init; }
     public double? RefZ { get; init; }
     public double? TerrainZ { get; init; }
+    /// <summary>Floating objects only: the placed reference as "ID:Plugin.esp", to turn into a console ID with the load order.</summary>
+    public string? RefKey { get; init; }
 }
 
 public sealed record ProblemMapData(List<ProblemMark> Marks, Dictionary<string, List<OverviewCell>> Overview, int PluginCount, IReadOnlyList<string> Notes)
@@ -97,7 +99,7 @@ public static partial class HybridRunner
             double wx = 0, wy = 0, rz = 0, tz = 0;
             var hasPos = Dbl(f[7], out wx) && Dbl(f[8], out wy) && Dbl(f[9], out rz) && Dbl(f[10], out tz);
             marks.Add(new ProblemMark(f[0], x, y, x, y, ProblemKind.FloatingObject, delta,
-                $"{f[6]} ({f[4]}) floats {delta:F0} units above the ground and was not auto-corrected (over the safety cap or not confirmed by collision).") with { WorldX = hasPos ? wx : null, WorldY = hasPos ? wy : null, RefZ = hasPos ? rz : null, TerrainZ = hasPos ? tz : null });
+                $"{f[6]} ({f[4]}) floats {delta:F0} units above the ground and was not auto-corrected (over the safety cap or not confirmed by collision).") with { WorldX = hasPos ? wx : null, WorldY = hasPos ? wy : null, RefZ = hasPos ? rz : null, TerrainZ = hasPos ? tz : null, RefKey = f[4] });
         }
         log($"Problem map: {marks.Count(m => m.Kind == ProblemKind.HeightSeam)} height seam(s), {marks.Count(m => m.Kind == ProblemKind.TextureSeam)} texture seam(s), " +
             $"{marks.Count(m => m.Kind == ProblemKind.WaterSeam)} possible water seam(s), {marks.Count(m => m.Kind == ProblemKind.FloatingObject)} floating object(s).");

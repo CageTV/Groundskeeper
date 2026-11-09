@@ -59,6 +59,7 @@
             <TextBlock Text="Selected" Margin="0,12,0,2" FontWeight="SemiBold"/>
             <TextBlock x:Name="Selection" TextWrapping="Wrap" MinHeight="48" Text="Click a mark in the 3D view (a floating object or a seam)."/>
             <Button x:Name="CopyButton" Content="Copy console command" Click="Copy_Click" IsEnabled="False" HorizontalAlignment="Left"/>
+            <TextBlock Style="{StaticResource Hint}" TextWrapping="Wrap" Text="player.moveto uses the load-order slots of the plugins that were scanned. If you change your plugin list, press Scan again before using it."/>
             <TextBlock Text="Legend" Margin="0,12,0,2" FontWeight="SemiBold"/>
             <TextBlock TextWrapping="Wrap" Foreground="#FFFF5A4F" Text="Red wall: height step across a cell edge (the wall is the step)."/>
             <TextBlock TextWrapping="Wrap" Foreground="#FF3DD6F5" Text="Cyan strip: possible water seam."/>

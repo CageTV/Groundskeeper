@@ -4,6 +4,7 @@ using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using System.Windows.Media.Media3D;
+using Mutagen.Bethesda.Plugins;
 using SeamFinder.Core;
 
 namespace LandscapeHybrid.UI;
@@ -77,6 +78,7 @@ public partial class ReliefWindow : Window
         if (_grid is null) return;
         var g = _grid;
         _pick.Clear();
+        var pickModels = new List<GeometryModel3D>();
         var group = new Model3DGroup();
         group.Children.Add(new AmbientLight(Color.FromRgb(0x5C, 0x5C, 0x66)));
         group.Children.Add(new DirectionalLight(Color.FromRgb(0xE8, 0xE2, 0xD4), new Vector3D(-0.5, -0.8, -0.35)));
@@ -157,7 +159,7 @@ public partial class ReliefWindow : Window
                             AddBox(target, px, gy, pz, isSel ? 22 : 12, Math.Max(2, ry - gy));
                             AddBox(target, px, ry - 30 * exag, pz, isSel ? 130 : 90, 60 * exag);
                             var pb = new MeshGeometry3D(); AddBox(pb, px, gy - 40, pz, 260, Math.Max(2, ry - gy) + 220);
-                            var pm = new GeometryModel3D(pb, PickMaterial) { BackMaterial = PickMaterial }; _pick[pm] = m; group.Children.Add(pm);
+                            var pm = new GeometryModel3D(pb, PickMaterial) { BackMaterial = PickMaterial }; _pick[pm] = m; pickModels.Add(pm);
                             continue;
                         }
                         double mx = Sx((m.X + 0.5) * Cell), mz = Sz((m.Y + 0.5) * Cell), baseY = Y(fc.Heights[16, 16]);
@@ -178,7 +180,7 @@ public partial class ReliefWindow : Window
                     }
                     Ribbon(target, pts, isSel ? 90 : 55);
                     var sb = new MeshGeometry3D(); Ribbon(sb, pts.Select(q => new Point3D(q.X, q.Y + 10, q.Z)), 260);
-                    var sm = new GeometryModel3D(sb, PickMaterial) { BackMaterial = PickMaterial }; _pick[sm] = m; group.Children.Add(sm);
+                    var sm = new GeometryModel3D(sb, PickMaterial) { BackMaterial = PickMaterial }; _pick[sm] = m; pickModels.Add(sm);
                     if (kind == ProblemKind.HeightSeam)
                         for (var k = 0; k < 32; k++)
                             AddQuad(isSel ? sel : curtain, new Point3D(pts[k].X, lows[k], pts[k].Z), new Point3D(pts[k + 1].X, lows[k + 1], pts[k + 1].Z),
@@ -191,6 +193,8 @@ public partial class ReliefWindow : Window
             }
         }
 
+        // invisible click targets last, so they never hide what is drawn behind them
+        foreach (var pm in pickModels) group.Children.Add(pm);
         Scene.Content = group;
         _target = byCell.TryGetValue((g.CenterX, g.CenterY), out var mid) ? new Point3D(0, Y((float)mid.Heights.Cast<float>().Average()), 0) : new Point3D(0, 0, 0);
         UpdateCamera();
@@ -314,6 +318,14 @@ public partial class ReliefWindow : Window
         UpdateCamera();
     }
 
+    /// <summary>The console command that takes you to the selected mark: next to the object itself for a floating object, else to its cell.</summary>
+    string GoCommand(ProblemMark m)
+    {
+        if (m.Kind == ProblemKind.FloatingObject && m.RefKey is { } rk && FormKey.TryFactory(rk, out var fk) && _session.ConsoleFormId(fk) is { } id)
+            return $"player.moveto {id}";
+        return m.ConsoleCommand;
+    }
+
     void PickAt(Point p)
     {
         ProblemMark? found = null;
@@ -324,7 +336,7 @@ public partial class ReliefWindow : Window
         }, new PointHitTestParameters(p));
         if (found is null) return;
         _selected = found;
-        Selection.Text = $"{found.Detail}\n{found.ConsoleCommand}";
+        Selection.Text = $"{found.Detail}\n{GoCommand(found)}" + (found.Kind == ProblemKind.FloatingObject ? $"\n(cell only: {found.ConsoleCommand})" : "");
         CopyButton.IsEnabled = true;
         Rebuild();
     }
@@ -332,7 +344,7 @@ public partial class ReliefWindow : Window
     void Copy_Click(object sender, RoutedEventArgs e)
     {
         if (_selected is null) return;
-        try { Clipboard.SetText(_selected.ConsoleCommand); Selection.Text += "\n(copied)"; } catch { Selection.Text += "\n(the clipboard is busy)"; }
+        try { Clipboard.SetText(GoCommand(_selected)); Selection.Text += "\n(copied)"; } catch { Selection.Text += "\n(the clipboard is busy)"; }
     }
 
     void Save_Click(object sender, RoutedEventArgs e)

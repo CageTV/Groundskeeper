@@ -73,6 +73,31 @@ public sealed class ReliefSession : IDisposable
         return new ReliefGrid(worldspace, cx, cy, radius, cells);
     }
 
+    Dictionary<ModKey, (bool Light, int Index)>? _slots;
+
+    /// <summary>
+    /// The FormID the game console knows a placed reference by: the load-order slot of the plugin that defines it (full plugin: its index;
+    /// light plugin: FE + its light index), then the ID. Null if the plugin is not in this load order.
+    /// </summary>
+    public string? ConsoleFormId(FormKey fk)
+    {
+        if (_slots is null)
+        {
+            var slots = new Dictionary<ModKey, (bool, int)>();
+            int full = 0, light = 0;
+            foreach (var l in _env.LoadOrder.ListedOrder)
+            {
+                var isLight = l.ModKey.Type == ModType.Light
+                    || (l.Mod?.ModHeader.Flags.HasFlag(SkyrimModHeader.HeaderFlag.Small) ?? false);
+                slots[l.ModKey] = isLight ? (true, light++) : (false, full++);
+            }
+            _slots = slots;
+        }
+        if (!_slots.TryGetValue(fk.ModKey, out var s)) return null;
+        var id = s.Light ? 0xFE000000u | ((uint)s.Index << 12) | (fk.ID & 0xFFFu) : ((uint)s.Index << 24) | (fk.ID & 0xFFFFFFu);
+        return id.ToString("X8");
+    }
+
     public void Dispose()
     {
         _env.Dispose();
