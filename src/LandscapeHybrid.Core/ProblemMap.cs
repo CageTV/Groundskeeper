@@ -11,6 +11,12 @@ public enum ProblemKind { HeightSeam, TextureSeam, WaterSeam, FloatingObject }
 public sealed record ProblemMark(string Worldspace, int X, int Y, int X2, int Y2, ProblemKind Kind, double Severity, string Detail, bool OfficialOnly = false)
 {
     public string ConsoleCommand => $"cow {Worldspace} {X} {Y}";
+
+    /// <summary>Floating objects only: where the object is (game units) and the ground height under it, so the 3D view can draw it in place.</summary>
+    public double? WorldX { get; init; }
+    public double? WorldY { get; init; }
+    public double? RefZ { get; init; }
+    public double? TerrainZ { get; init; }
 }
 
 public sealed record ProblemMapData(List<ProblemMark> Marks, Dictionary<string, List<OverviewCell>> Overview, int PluginCount, IReadOnlyList<string> Notes)
@@ -88,8 +94,10 @@ public static partial class HybridRunner
             // Worldspace,CellX,CellY,OwnerPlugin,RefFormID,BaseFormID,BaseEditorID,WorldX,WorldY,RefZ,TerrainZ,Delta
             if (f.Length < 12 || !Int(f[1], out var x) || !Int(f[2], out var y) || !Dbl(f[11], out var delta)) continue;
             if (delta <= 0) continue; // sunk objects are usually deliberate embedding; only floating ones are listed
-            marks.Add(new(f[0], x, y, x, y, ProblemKind.FloatingObject, delta,
-                $"{f[6]} ({f[4]}) floats {delta:F0} units above the ground and was not auto-corrected (over the safety cap or not confirmed by collision)."));
+            double wx = 0, wy = 0, rz = 0, tz = 0;
+            var hasPos = Dbl(f[7], out wx) && Dbl(f[8], out wy) && Dbl(f[9], out rz) && Dbl(f[10], out tz);
+            marks.Add(new ProblemMark(f[0], x, y, x, y, ProblemKind.FloatingObject, delta,
+                $"{f[6]} ({f[4]}) floats {delta:F0} units above the ground and was not auto-corrected (over the safety cap or not confirmed by collision).") with { WorldX = hasPos ? wx : null, WorldY = hasPos ? wy : null, RefZ = hasPos ? rz : null, TerrainZ = hasPos ? tz : null });
         }
         log($"Problem map: {marks.Count(m => m.Kind == ProblemKind.HeightSeam)} height seam(s), {marks.Count(m => m.Kind == ProblemKind.TextureSeam)} texture seam(s), " +
             $"{marks.Count(m => m.Kind == ProblemKind.WaterSeam)} possible water seam(s), {marks.Count(m => m.Kind == ProblemKind.FloatingObject)} floating object(s).");

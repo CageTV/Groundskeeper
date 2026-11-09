@@ -11,7 +11,7 @@
     </Window.Resources>
     <Grid>
         <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="280"/></Grid.ColumnDefinitions>
-        <Grid Grid.Column="0" Background="#FF0B0D11" ClipToBounds="True">
+        <Grid x:Name="ViewHost" Grid.Column="0" Background="#FF0B0D11" ClipToBounds="True">
             <Viewport3D x:Name="View" ClipToBounds="True">
                 <Viewport3D.Camera><PerspectiveCamera x:Name="Cam" FieldOfView="55" NearPlaneDistance="50" FarPlaneDistance="400000"/></Viewport3D.Camera>
                 <ModelVisual3D x:Name="Scene"/>
@@ -55,11 +55,12 @@
                 <Button Grid.Row="1" Grid.Column="1" Content="South" Click="South_Click" Margin="2"/>
                 <Button Grid.Row="1" Grid.Column="2" Content="East" Click="East_Click" Margin="2"/>
             </Grid>
+            <Button Content="Save picture..." Click="Save_Click" HorizontalAlignment="Left" Margin="0,12,0,0" ToolTip="Save what the 3D view shows as a PNG."/>
             <TextBlock Text="Legend" Margin="0,12,0,2" FontWeight="SemiBold"/>
             <TextBlock TextWrapping="Wrap" Foreground="#FFFF5A4F" Text="Red wall: height step across a cell edge (the wall is the step)."/>
             <TextBlock TextWrapping="Wrap" Foreground="#FF3DD6F5" Text="Cyan strip: possible water seam."/>
             <TextBlock TextWrapping="Wrap" Foreground="#FFC768D8" Text="Purple strip: texture seam."/>
-            <TextBlock TextWrapping="Wrap" Foreground="#FFFFB32B" Text="Amber post: cell has floating objects left alone."/>
+            <TextBlock TextWrapping="Wrap" Foreground="#FFFFB32B" Text="Amber post: a floating object left alone, drawn where it is (block = the object, post = the gap to the ground)."/>
             <TextBlock TextWrapping="Wrap" Foreground="White" Text="White: the mark you picked on the map."/>
         </StackPanel>
     </Grid>

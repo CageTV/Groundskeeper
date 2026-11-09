@@ -142,6 +142,14 @@ public partial class ReliefWindow : Window
                     if (kind == ProblemKind.FloatingObject)
                     {
                         if (!byCell.TryGetValue((m.X, m.Y), out var fc)) continue;
+                        if (m.WorldX is { } fx && m.WorldY is { } fy && m.RefZ is { } fz && m.TerrainZ is { } ft)
+                        {
+                            // the real object: a thin post from the ground up to where the object floats, and a block at the object itself
+                            double px = Sx(fx), pz = Sz(fy), gy = Y((float)ft), ry = Y((float)fz);
+                            AddBox(target, px, gy, pz, isSel ? 22 : 12, Math.Max(2, ry - gy));
+                            AddBox(target, px, ry - 30 * exag, pz, isSel ? 130 : 90, 60 * exag);
+                            continue;
+                        }
                         double mx = Sx((m.X + 0.5) * Cell), mz = Sz((m.Y + 0.5) * Cell), baseY = Y(fc.Heights[16, 16]);
                         AddBox(target, mx, baseY, mz, isSel ? 90 : 60, 1800);
                         continue;
@@ -292,6 +300,19 @@ public partial class ReliefWindow : Window
         }
         _drag = p;
         UpdateCamera();
+    }
+
+    void Save_Click(object sender, RoutedEventArgs e)
+    {
+        var dlg = new Microsoft.Win32.SaveFileDialog { Filter = "PNG picture|*.png", FileName = $"Groundskeeper-{_world}-{_cx}_{_cy}.png" };
+        if (dlg.ShowDialog(this) != true) return;
+        var w = (int)ViewHost.ActualWidth; var h = (int)ViewHost.ActualHeight;
+        if (w < 2 || h < 2) return;
+        var rtb = new RenderTargetBitmap(w, h, 96, 96, PixelFormats.Pbgra32);
+        Hint.Visibility = Visibility.Hidden; ViewHost.UpdateLayout();
+        try { rtb.Render(ViewHost); } finally { Hint.Visibility = Visibility.Visible; }
+        var enc = new PngBitmapEncoder(); enc.Frames.Add(BitmapFrame.Create(rtb));
+        using var fs = System.IO.File.Create(dlg.FileName); enc.Save(fs);
     }
 
     void Exag_Changed(object sender, RoutedEventArgs e)
