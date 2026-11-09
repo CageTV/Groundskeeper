@@ -1,6 +1,6 @@
 # Groundskeeper 0.1.0: release checklist
 
-State as of 2026-11-08 (release candidate 2). Nothing has been published, pushed or deployed.
+State as of 2026-11-08 (release candidate 2). The code is pushed to GitHub; nothing is released until the 3D/2D map window exists.
 
 ## Verified (by running it)
 
@@ -15,7 +15,7 @@ State as of 2026-11-08 (release candidate 2). Nothing has been published, pushed
 
 ## Not verified: needs the author
 
-1. **In-game test.** The output has never been loaded in a game. Test on a copy of the profile, check the cells the map marks, the cells the
+1. **In-game test.** The author has tried the output and several regenerations of it on the Tabula list and reports good results (2026-11-08). Still to check by hand: Test on a copy of the profile, check the cells the map marks, the cells the
    floating pass moved, and the `Groundskeeper.esp` load position.
 2. **Vortex / plain install** mode is untested on a real Vortex setup (the author does not use Vortex): it reads the game's Data folder and, with no output folder chosen, writes the plugin straight into it. A dry run on a vanilla Data folder works. **Launching from MO2's executables list** was tested by the author and works.
 3. **Roads pass** has not run on real road data.
