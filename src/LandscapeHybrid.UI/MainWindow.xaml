@@ -66,14 +66,6 @@
             </Grid>
         </Border>
 
-        <Border Grid.Row="1" Background="#FF3A2F05" BorderBrush="#FF8A6F00" BorderThickness="1" CornerRadius="6" Padding="10,6" Margin="0,0,0,10">
-            <TextBlock Foreground="#FFFFD966" TextWrapping="Wrap" Margin="0" FontSize="12">
-                Not yet tested in-game. Runs the landscape tools (seams, texture layers, roads, floating objects) over your
-                Mod Organizer 2 load order and merges them into one plugin. Works alongside Landscape Fixer by Cl3mus33:
-                its LandscapeFixer.esp is never used as a source, so run the two in either order.
-            </TextBlock>
-        </Border>
-
         <Grid Grid.Row="2">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="11*" MinWidth="440"/>

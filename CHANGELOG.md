@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.1.0 (release candidate, not yet tested in-game)
+## 0.1.0 (2026-11-08)
 
 First build of Groundskeeper: one app that replaces running Landscape Seam Fixer, Landscape Texture Fixer,
 Road Mask Merger, Floating Object Fixer and PatchForeman separately.

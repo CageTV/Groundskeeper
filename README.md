@@ -1,6 +1,6 @@
 # Groundskeeper
 
-**Version 0.1.0 (release candidate, not yet tested in-game).** See [CHANGELOG.md](CHANGELOG.md).
+**Version 0.1.0.** See [CHANGELOG.md](CHANGELOG.md).
 
 One app for the landscape problems in a big Skyrim Special Edition / Anniversary Edition load order.
 Groundskeeper scans your load order, shows you **which mods overwrite which terrain and water**, and
@@ -8,9 +8,10 @@ writes **one** patch plugin that repairs only what *you* choose. It replaces run
 Fixer, Landscape Texture Fixer, Road Mask Merger, Floating Object Fixer and PatchForeman one after
 another, and it is built to work **alongside Landscape Fixer by Cl3mus33** (see below).
 
-> **Read this first.** Groundskeeper has not been loaded in a game yet. Everything below was checked
-> on a 445-plugin load order and on small synthetic plugins, in preview mode, and nothing has been
-> played. Review the log, test on a copy of your profile, and keep your saves backed up.
+> **Read this first.** Groundskeeper was tested by its author on one large Mod Organizer 2 load order (about 450 plugins):
+> the output was loaded in game and the road pass was run on real road data. Vortex / plain-install mode has not been
+> tried on a real Vortex setup. It writes a plugin, never touches your other files, and does nothing you did not tick, but
+> review the log, test on a copy of your profile, and keep your saves backed up.
 
 ## Why this exists
 
@@ -34,7 +35,7 @@ should win? The old tools answered it with a built-in trust list and then silent
 |---|---|
 | **Seams** | Restores terrain (height, normals, vertex colour) and water that a later mod overwrote, only for the mods you ticked. Skips cells that have their own water plane or where placed objects would move, and reports them. |
 | **Texture layers** | Adds a small blend hint where neighbouring cells show a hard texture boundary. Optional; review these in game. |
-| **Roads** | Reconciles a road mod's terrain with the rest. Runs only if you name a road source plugin **and** give it the road images from [ACMOS Road Generator](https://www.nexusmods.com/skyrimspecialedition/mods/79205) (not included; see below). Untested on real data so far. |
+| **Roads** | Reconciles a road mod's terrain with the rest. Runs only if you name a road source plugin **and** give it the road images from [ACMOS Road Generator](https://www.nexusmods.com/skyrimspecialedition/mods/79205) (not included; see below). |
 | **Floating objects** | Re-grounds floating or sunken placed references, checking each against the real Havok collision of nearby meshes, read in-process (no Python needed). Off by default, and it flags many references, so read the log. |
 | **Preferred road mod** | Pick one road mod that **edits the landscape** (reshapes terrain heights, like Northern Roads or Northern Vanaheimr Roads): its terrain wins wherever it conflicts, and its own patches rank above it. Road mods that only change textures do not count. |
 | **Terrain winners** | You set the order of conflicting mods; the highest wins. A mod you add is placed where the load order has it (the one loaded last on top) and you can then move it with the arrows, or press Sort by load order to put them back. Written through the same safety checks as the seam pass. |
@@ -71,18 +72,19 @@ If you re-run Groundskeeper, its own earlier plugins are excluded from the scan 
 
 ## Using it
 
-There is no packaged release yet: build from source (see below) and run `Groundskeeper.exe`. It is a
-.NET 10 app (the runtime is required).
+Download the zip from the [releases page](https://github.com/CageTV/Groundskeeper/releases), unzip it anywhere and run
+`Groundskeeper.exe`. It is a .NET 10 app: install the [.NET 10 Desktop Runtime (x64)](https://dotnet.microsoft.com/download/dotnet/10.0)
+first. Or build from source (see below).
 
 1. **Pick your mod manager.**
    - **Mod Organizer 2:** pick the instance folder (the one with `ModOrganizer.ini`) and a profile.
-     Started from MO2's executables list it is meant to find the instance by itself (untested).
+     Started from MO2's executables list it finds the instance by itself.
    - **Vortex or a plain install:** it reads the game's `Data` folder and plugin list. Leave the
      game folder empty to find it from the registry, or pick it.
 2. **Output folder.** In Mod Organizer 2 you can leave it empty: Groundskeeper uses (and creates, when it
    generates) a "Groundskeeper Output" mod folder in your MO2 mods folder, like Landscape Fixer does with its own,
    and fills in the MO2 instance and profile itself when started from MO2. Refresh MO2 to see the new mod. With
-   Vortex or a plain install pick a dedicated folder. Only this tool's own plugin names in it are ever replaced;
+   Vortex or a plain install, leave it empty to write the plugin straight into the game's `Data` folder (enable it in your plugin list), or pick another folder. Only this tool's own plugin names in it are ever replaced;
    nothing else is deleted.
 3. Press **Scan for terrain conflicts**. Tick the mods whose terrain or water should be reverted,
    use **Make winner** on mods that should win, and tick the water mods to protect.
@@ -127,14 +129,16 @@ GroundskeeperCli --direct [--game=<install or Data folder>] --output=<folder> [o
 
 ## Known limits
 
-- **Not tested in-game.** Preview results are plans, not proof the cells look right.
+- **Tested on one load order.** The author checked the output in game on a large MO2 list; other lists are not verified.
+  Preview results are plans, not proof the cells look right.
 - **The problem map lists candidates.** A river or waterfall can legitimately step between cells, and a mark can be a
   harmless texture boundary. It does not fix anything; on the author's list most remaining height seams were the
   Northern Vanaheimr Roads patches, not this tool.
-- **Speed.** On the author's 445-plugin list a full run (seams, textures, floating, merge) takes about a minute. The first
+- **Speed.** On the author's 445-plugin list a full run (seams, textures, floating, merge) takes about 35 seconds. The first
   scan is the slowest part; a repeat Scan or a Generate right after it reuses its results.
-- **Vortex and "launched from MO2" are untested.** Direct mode was only run on a vanilla game folder
-  with Creation Club.
+- **Vortex / plain-install ("direct") mode is untested on a real Vortex setup.** It was only run on a vanilla game folder
+  with Creation Club. In this mode the plugin is written straight into the game's `Data` folder. Launching from MO2's
+  executables list was tested and works.
 - **Floating objects** is off by default. It reads each mesh's real collision in-process (compressed
   meshes, boxes, convex shapes, lists and transforms; capsules and spheres are skipped on purpose), but it
   only moves references that are clearly floating and leaves deeply sunk ones alone as likely deliberate.
