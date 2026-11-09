@@ -27,14 +27,21 @@ public partial class ReliefWindow : Window
     // orbit camera around a target point (scene units are game units, centred on the middle of the centre cell)
     double _yaw = -0.6, _pitch = 0.75, _dist = 9000;
     Point3D _target = new(0, 0, 0);
-    Point? _drag; bool _panning;
+    Point? _drag; bool _panning; Point _downAt;
+    readonly Dictionary<GeometryModel3D, ProblemMark> _pick = new();
+    static readonly Material PickMaterial = new DiffuseMaterial(new SolidColorBrush(Color.FromArgb(1, 0, 0, 0)));
 
     public ReliefWindow(ReliefSession session, string worldspace, int cx, int cy, IEnumerable<ProblemMark> marks, ProblemMark? selected)
     {
         InitializeComponent();
         _session = session; _world = worldspace; _cx = cx; _cy = cy; _marks = marks.ToList(); _selected = selected;
         _ready = true;
-        Catcher.MouseLeftButtonDown += (s, e) => { _drag = e.GetPosition(Catcher); _panning = false; Catcher.CaptureMouse(); };
+        Catcher.MouseLeftButtonDown += (s, e) => { _drag = e.GetPosition(Catcher); _downAt = _drag.Value; _panning = false; Catcher.CaptureMouse(); };
+        Catcher.MouseLeftButtonUp += (s, e) =>
+        {
+            var p = e.GetPosition(Catcher);
+            if (Math.Abs(p.X - _downAt.X) <= 4 && Math.Abs(p.Y - _downAt.Y) <= 4) PickAt(e.GetPosition(View));
+        };
         Catcher.MouseRightButtonDown += (s, e) => { _drag = e.GetPosition(Catcher); _panning = true; Catcher.CaptureMouse(); };
         Catcher.MouseUp += (s, e) => { _drag = null; Catcher.ReleaseMouseCapture(); };
         Catcher.MouseMove += OnMove;
@@ -69,6 +76,7 @@ public partial class ReliefWindow : Window
     {
         if (_grid is null) return;
         var g = _grid;
+        _pick.Clear();
         var group = new Model3DGroup();
         group.Children.Add(new AmbientLight(Color.FromRgb(0x5C, 0x5C, 0x66)));
         group.Children.Add(new DirectionalLight(Color.FromRgb(0xE8, 0xE2, 0xD4), new Vector3D(-0.5, -0.8, -0.35)));
@@ -148,6 +156,8 @@ public partial class ReliefWindow : Window
                             double px = Sx(fx), pz = Sz(fy), gy = Y((float)ft), ry = Y((float)fz);
                             AddBox(target, px, gy, pz, isSel ? 22 : 12, Math.Max(2, ry - gy));
                             AddBox(target, px, ry - 30 * exag, pz, isSel ? 130 : 90, 60 * exag);
+                            var pb = new MeshGeometry3D(); AddBox(pb, px, gy - 40, pz, 260, Math.Max(2, ry - gy) + 220);
+                            var pm = new GeometryModel3D(pb, PickMaterial) { BackMaterial = PickMaterial }; _pick[pm] = m; group.Children.Add(pm);
                             continue;
                         }
                         double mx = Sx((m.X + 0.5) * Cell), mz = Sz((m.Y + 0.5) * Cell), baseY = Y(fc.Heights[16, 16]);
@@ -167,6 +177,8 @@ public partial class ReliefWindow : Window
                         lows.Add(Y(Math.Min(ha, hb))); highs.Add(Y(Math.Max(ha, hb)));
                     }
                     Ribbon(target, pts, isSel ? 90 : 55);
+                    var sb = new MeshGeometry3D(); Ribbon(sb, pts.Select(q => new Point3D(q.X, q.Y + 10, q.Z)), 260);
+                    var sm = new GeometryModel3D(sb, PickMaterial) { BackMaterial = PickMaterial }; _pick[sm] = m; group.Children.Add(sm);
                     if (kind == ProblemKind.HeightSeam)
                         for (var k = 0; k < 32; k++)
                             AddQuad(isSel ? sel : curtain, new Point3D(pts[k].X, lows[k], pts[k].Z), new Point3D(pts[k + 1].X, lows[k + 1], pts[k + 1].Z),
@@ -302,6 +314,27 @@ public partial class ReliefWindow : Window
         UpdateCamera();
     }
 
+    void PickAt(Point p)
+    {
+        ProblemMark? found = null;
+        VisualTreeHelper.HitTest(View, null, r =>
+        {
+            if (r is RayMeshGeometry3DHitTestResult { ModelHit: GeometryModel3D gm } && _pick.TryGetValue(gm, out var m)) { found = m; return HitTestResultBehavior.Stop; }
+            return HitTestResultBehavior.Continue;
+        }, new PointHitTestParameters(p));
+        if (found is null) return;
+        _selected = found;
+        Selection.Text = $"{found.Detail}\n{found.ConsoleCommand}";
+        CopyButton.IsEnabled = true;
+        Rebuild();
+    }
+
+    void Copy_Click(object sender, RoutedEventArgs e)
+    {
+        if (_selected is null) return;
+        try { Clipboard.SetText(_selected.ConsoleCommand); Selection.Text += "\n(copied)"; } catch { Selection.Text += "\n(the clipboard is busy)"; }
+    }
+
     void Save_Click(object sender, RoutedEventArgs e)
     {
         var dlg = new Microsoft.Win32.SaveFileDialog { Filter = "PNG picture|*.png", FileName = $"Groundskeeper-{_world}-{_cx}_{_cy}.png" };
@@ -324,7 +357,7 @@ public partial class ReliefWindow : Window
     void Layer_Changed(object sender, RoutedEventArgs e) { if (_ready && _grid is not null) Rebuild(); }
     async void Radius_Changed(object sender, RoutedEventArgs e) { if (_ready && IsLoaded) await LoadAsync(); }
 
-    async Task Move(int dx, int dy) { _cx += dx; _cy += dy; _selected = null; await LoadAsync(); }
+    async Task Move(int dx, int dy) { _cx += dx; _cy += dy; _selected = null; Selection.Text = ""; CopyButton.IsEnabled = false; await LoadAsync(); }
     async void North_Click(object s, RoutedEventArgs e) => await Move(0, 1);
     async void South_Click(object s, RoutedEventArgs e) => await Move(0, -1);
     async void East_Click(object s, RoutedEventArgs e) => await Move(1, 0);

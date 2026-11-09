@@ -5,7 +5,7 @@
 First build of Groundskeeper: one app that replaces running Landscape Seam Fixer, Landscape Texture Fixer,
 Road Mask Merger, Floating Object Fixer and PatchForeman separately.
 
-- Problem map: **3D view** button opens the full-resolution terrain of a block of cells (3x3 to 7x7) around a mark as a 3D model (drag to rotate, right-drag to pan, wheel to zoom), with water, cell borders and the seam, water, texture and floating marks drawn on it, and buttons to step to the next cell. Floating objects left alone are drawn where they really are (a block for the object, a post down to the ground); **Save picture...** writes the view to a PNG.
+- Problem map: **3D view** button opens the full-resolution terrain of a block of cells (3x3 to 7x7) around a mark as a 3D model (drag to rotate, right-drag to pan, wheel to zoom), with water, cell borders and the seam, water, texture and floating marks drawn on it, and buttons to step to the next cell. Floating objects left alone are drawn where they really are (a block for the object, a post down to the ground); **Save picture...** writes the view to a PNG. Click a floating object or a seam in the 3D view to select it: the details and the `cow` console command appear in the side panel.
 - One shared library (`Groundskeeper.Seams`) instead of five diverging copies of `SeamFinder.Core`.
 - Mod Organizer 2, and Vortex / plain install (the game's `Data` folder).
 - Scan lists every mod that overwrites trusted terrain or water; nothing is reverted unless ticked.

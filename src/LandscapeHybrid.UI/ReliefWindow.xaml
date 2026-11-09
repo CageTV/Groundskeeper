@@ -56,6 +56,9 @@
                 <Button Grid.Row="1" Grid.Column="2" Content="East" Click="East_Click" Margin="2"/>
             </Grid>
             <Button Content="Save picture..." Click="Save_Click" HorizontalAlignment="Left" Margin="0,12,0,0" ToolTip="Save what the 3D view shows as a PNG."/>
+            <TextBlock Text="Selected" Margin="0,12,0,2" FontWeight="SemiBold"/>
+            <TextBlock x:Name="Selection" TextWrapping="Wrap" MinHeight="48" Text="Click a mark in the 3D view (a floating object or a seam)."/>
+            <Button x:Name="CopyButton" Content="Copy console command" Click="Copy_Click" IsEnabled="False" HorizontalAlignment="Left"/>
             <TextBlock Text="Legend" Margin="0,12,0,2" FontWeight="SemiBold"/>
             <TextBlock TextWrapping="Wrap" Foreground="#FFFF5A4F" Text="Red wall: height step across a cell edge (the wall is the step)."/>
             <TextBlock TextWrapping="Wrap" Foreground="#FF3DD6F5" Text="Cyan strip: possible water seam."/>
