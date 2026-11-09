@@ -65,6 +65,7 @@
             <StackPanel Grid.Row="3" Margin="0,8,0,0">
                 <TextBlock x:Name="Details" TextWrapping="Wrap" Margin="0,0,0,6" MinHeight="64"/>
                 <WrapPanel>
+                    <Button x:Name="ReliefButton" Content="3D view" Click="Relief_Click" IsEnabled="False" ToolTip="Open the terrain around the selected mark (or the last cell you clicked) as a 3D model."/>
                     <Button x:Name="CopyButton" Content="Copy console command" Click="Copy_Click" IsEnabled="False" ToolTip="Paste it in the game console (~): it moves you to that cell."/>
                     <Button Content="Export CSV..." Click="Export_Click"/>
                     <Button x:Name="RescanButton" Content="Scan again" Click="Rescan_Click"/>

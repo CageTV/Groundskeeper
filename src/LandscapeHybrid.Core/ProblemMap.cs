@@ -13,7 +13,11 @@ public sealed record ProblemMark(string Worldspace, int X, int Y, int X2, int Y2
     public string ConsoleCommand => $"cow {Worldspace} {X} {Y}";
 }
 
-public sealed record ProblemMapData(List<ProblemMark> Marks, Dictionary<string, List<OverviewCell>> Overview, int PluginCount, IReadOnlyList<string> Notes);
+public sealed record ProblemMapData(List<ProblemMark> Marks, Dictionary<string, List<OverviewCell>> Overview, int PluginCount, IReadOnlyList<string> Notes)
+{
+    /// <summary>The load order the scan used (after any "without" / "extra" changes): the 3D view reads terrain from the same one.</summary>
+    public IReadOnlyList<Mo2Resolver.ResolvedPlugin> LoadOrder { get; init; } = Array.Empty<Mo2Resolver.ResolvedPlugin>();
+}
 
 public static partial class HybridRunner
 {
@@ -93,7 +97,7 @@ public static partial class HybridRunner
         var names = overT.Result.Names;
         for (var i = 0; i < marks.Count; i++)
             if (names.TryGetValue(marks[i].Worldspace, out var nice)) marks[i] = marks[i] with { Worldspace = nice };
-        return new ProblemMapData(marks, overT.Result.Cells, order.Count, notes);
+        return new ProblemMapData(marks, overT.Result.Cells, order.Count, notes) { LoadOrder = order };
     }
 
     public static void WriteProblemCsv(ProblemMapData d, string path)
