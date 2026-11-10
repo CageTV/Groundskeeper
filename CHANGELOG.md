@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.1 (2026-11-10)
+
+- Fix: when one of the passes (seams, texture layers, roads, floating objects) needed more than 255 masters and was written as several staging plugins, only the first file reached the merge, so the cells in the others were lost. Every file a pass writes now goes into the merge, and the log says when a pass split.
+
 ## 0.1.0 (2026-11-08)
 
 First build of Groundskeeper: one app that replaces running Landscape Seam Fixer, Landscape Texture Fixer,

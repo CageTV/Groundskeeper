@@ -388,17 +388,24 @@ public static partial class HybridRunner
         var patches = new List<Mo2Resolver.ResolvedPlugin>();
         int seam = 0, tex = 0, road = 0, flo = 0;
 
-        void Pass(string label, bool on, Func<string?> run)
+        static IReadOnlyList<string> Outs(string? basePath, IReadOnlyList<string>? all) =>
+            all is { Count: > 0 } ? all : string.IsNullOrEmpty(basePath) ? Array.Empty<string>() : new[] { basePath };
+
+        // A pass whose patch passed the 255-master limit is written as Name.esp, Name_2.esp, ...; every file must reach the merge.
+        void Pass(string label, bool on, Func<IReadOnlyList<string>> run)
         {
             if (!on) return;
             log($"== {label} ==");
             var sw = System.Diagnostics.Stopwatch.StartNew();
             try
             {
-                var written = run();
+                var written = run().Where(File.Exists).ToList();
                 log($"{label}: {sw.Elapsed.TotalSeconds:F1} s");
-                if (written is not null && File.Exists(written))
-                    patches.Add(new Mo2Resolver.ResolvedPlugin(Path.GetFileName(written), written));
+                if (written.Count > 0)
+                {
+                    if (written.Count > 1) log($"{label}: split into {written.Count} staging plugins (master limit); all go into the merge.");
+                    foreach (var w in written) patches.Add(new Mo2Resolver.ResolvedPlugin(Path.GetFileName(w), w));
+                }
                 else log($"{label}: nothing to write.");
             }
             catch (Exception ex)
@@ -415,13 +422,13 @@ public static partial class HybridRunner
                 var r = SeamFixer.GenerateFixPluginForResolvedPlugins(baseOrder, "LandscapeSeamFixes.esp", staging, log,
                     s.TrustNorthernRoads, waterTrust: WaterOptions(s), customTrustedPlugins: customTrusted,
                     priorityOverNorthernRoadsPlugins: winnersList);
-                seam = r.CellsPatched; return r.OutputPath;
+                seam = r.CellsPatched; return Outs(r.OutputPath, r.AllOutputPaths);
             });
             Pass("Texture layers", s.TextureLayers, () =>
             {
                 var r = TextureLayerFixer.GenerateFixPluginForResolvedPlugins(baseOrder, "LandscapeTextureFixes.esp", staging, log,
                     s.TrustNorthernRoads, customTrusted);
-                tex = r.CellsPatched; return r.OutputPath;
+                tex = r.CellsPatched; return Outs(r.OutputPath, r.AllOutputPaths);
             });
             var roadCheck = string.IsNullOrWhiteSpace(s.RoadSourcePlugin) ? null : CheckRoadInputs(s.RoadSourcePlugin, s.RoadMaskFolder, s.RoadWorldspace);
             var roadBad = roadCheck?.StartsWith("Problem") ?? false;
@@ -430,13 +437,13 @@ public static partial class HybridRunner
             {
                 var r = RoadTerrainMerger.RunForResolvedPlugins(baseOrder, "RoadMaskMerge.esp", staging, log,
                     s.RoadSourcePlugin, s.RoadMaskFolder, s.RoadWorldspace);
-                road = r.CellsMerged + r.CellsFellBackToFullRoad; return r.OutputPath;
+                road = r.CellsMerged + r.CellsFellBackToFullRoad; return Outs(r.OutputPath, r.AllOutputPaths);
             });
             Pass("Floating objects", s.Floating, () =>
             {
                 var r = FloatingObjectFixer.RunFixForResolvedPlugins(baseOrder, "FloatingObjectFixes.esp", staging, log,
                     s.FloatingThresholdUnits, s.FloatingWorldspace, resolveAssetPath: env.Asset);
-                flo = r.RefsCorrected; return r.OutputPath;
+                flo = r.RefsCorrected; return Outs(r.OutputPath, r.AllOutputPaths);
             });
 
             if (patches.Count == 0)

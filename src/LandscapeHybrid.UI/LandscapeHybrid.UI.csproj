@@ -9,7 +9,7 @@
     <UseWPF>true</UseWPF>
     <!-- MO2's USVFS hooks reject the CET shadow stack: keep it off so the app can start from MO2's executables list. -->
     <CETCompat>false</CETCompat>
-    <Version>0.1.0</Version>
+    <Version>0.1.1</Version>
     <Product>Groundskeeper</Product>
   </PropertyGroup>
   <ItemGroup>
