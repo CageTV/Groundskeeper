@@ -91,8 +91,9 @@
                                     <RowDefinition Height="Auto"/>
                                     <RowDefinition Height="Auto"/>
                                     <RowDefinition Height="Auto"/>
+                                    <RowDefinition Height="Auto"/>
                                 </Grid.RowDefinitions>
-                                <TextBlock x:Name="InstanceLabel" Grid.Row="0" Text="Instance folder:"/>
+                                <TextBlock x:Name="InstanceLabel" Grid.Row="0" Text="Instance folder:" ToolTip="Either the folder holding ModOrganizer.ini, or your MO2 base folder (the one with profiles and mods). Groundskeeper finds the rest."/>
                                 <TextBox Grid.Row="0" Grid.Column="1" x:Name="InstanceBox" TextChanged="InstanceBox_TextChanged"/>
                                 <Button x:Name="InstanceBrowse" Grid.Row="0" Grid.Column="2" Content="Browse..." Click="BrowseInstance_Click"/>
                                 <TextBlock x:Name="ProfileLabel" Grid.Row="1" Text="Profile:"/>
@@ -101,6 +102,7 @@
                                 <TextBlock x:Name="GameLabel" Grid.Row="2" Text="Game folder (optional):" ToolTip="MO2: left empty, read from ModOrganizer.ini. Vortex / plain: left empty, found from the registry."/>
                                 <TextBox Grid.Row="2" Grid.Column="1" x:Name="GameBox"/>
                                 <Button Grid.Row="2" Grid.Column="2" Content="Browse..." Click="BrowseGame_Click"/>
+                                <TextBlock x:Name="InstanceStatus" Grid.Row="3" Grid.Column="1" Grid.ColumnSpan="2" Style="{StaticResource Hint}" TextWrapping="Wrap"/>
                             </Grid>
                         </StackPanel>
                     </GroupBox>

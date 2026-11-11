@@ -47,6 +47,9 @@ public static class Mo2Resolver
         // resolver stepped into its Data subfolder - callers log it.
         public string? GameDataPathCorrectedFrom { get; init; }
 
+        // The overwrite folder this resolution used (MO2 lets it live outside the instance); null = beside the mods folder.
+        public string? OverwriteDir { get; init; }
+
         // Resolves an ARBITRARY Data-relative asset path (mesh, texture, ...) to
         // its winning file on disk, using the exact same modlist.txt priority
         // order already computed for plugin resolution - added 2026-09-12 for
@@ -82,7 +85,7 @@ public static class Mo2Resolver
         public string? ResolveDataFile(string relativeDataPath)
         {
             var normalized = relativeDataPath.Replace('/', Path.DirectorySeparatorChar);
-            var fromOverwrite = Path.Combine(Path.GetDirectoryName(ModsDir) ?? ModsDir, "overwrite", normalized);
+            var fromOverwrite = Path.Combine(OverwriteDir ?? Path.Combine(Path.GetDirectoryName(ModsDir) ?? ModsDir, "overwrite"), normalized);
             if (File.Exists(fromOverwrite)) return fromOverwrite;
             foreach (var modName in EnabledModsInPriorityOrder)
             {
@@ -242,6 +245,12 @@ public static class Mo2Resolver
         return ResolveFromExplicitPaths(pluginsTxtPath, loadOrderTxtPath, modlistTxtPath, instancePath, gameDataPath);
     }
 
+    /// For an MO2 instance whose profiles / mods / overwrite folders are not all under one instance folder
+    /// (MO2 allows each to be moved; a global instance keeps its ini elsewhere).
+    public static Result ResolveFromFolders(string profileDir, string modsDir, string overwriteDir, string gameDataPath) =>
+        ResolveFromExplicitPaths(Path.Combine(profileDir, "plugins.txt"), Path.Combine(profileDir, "loadorder.txt"), Path.Combine(profileDir, "modlist.txt"),
+            Path.GetDirectoryName(modsDir) ?? modsDir, gameDataPath, modsDir, overwriteDir);
+
     /// Same as Resolve, but takes explicit paths to the three profile files
     /// instead of deriving them from instancePath+profileName - lets a UI
     /// override individual file locations if a profile is laid out
@@ -249,12 +258,12 @@ public static class Mo2Resolver
     /// instancePath is still needed to locate the "mods" folder.
     public static Result ResolveFromExplicitPaths(
         string pluginsTxtPath, string loadOrderTxtPath, string modlistTxtPath,
-        string instancePath, string gameDataPath)
+        string instancePath, string gameDataPath, string? modsDirectory = null, string? overwriteDirectory = null)
     {
-        var modsDir = Path.Combine(instancePath, "mods");
+        var modsDir = modsDirectory ?? Path.Combine(instancePath, "mods");
         // MO2's overwrite folder outranks every mod folder - generated
         // plugins (Synthesis.esp, Bashed Patch, tool output) often live there.
-        var overwriteDir = Path.Combine(instancePath, "overwrite");
+        var overwriteDir = overwriteDirectory ?? Path.Combine(instancePath, "overwrite");
         var givenGameDataPath = gameDataPath;
         gameDataPath = NormalizeGameDataPath(gameDataPath);
 
@@ -310,6 +319,7 @@ public static class Mo2Resolver
         ThrowIfLoadOrderUnusable(resolved, missing, gameDataPath);
         return new Result(resolved, missing, enabledModsInPriorityOrder, modsDir, gameDataPath)
         {
+            OverwriteDir = overwriteDir,
             GameDataPathCorrectedFrom = !string.Equals(gameDataPath, givenGameDataPath?.Trim().Trim('"').TrimEnd('\\', '/'), StringComparison.OrdinalIgnoreCase) ? givenGameDataPath : null,
         };
     }

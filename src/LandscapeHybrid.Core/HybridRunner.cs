@@ -120,8 +120,14 @@ public static partial class HybridRunner
         Func<string, string?> asset;
         if (s.ModManager == ModManager.ModOrganizer2)
         {
-            var game = string.IsNullOrWhiteSpace(s.GameDataPath) ? ReadGamePathFromIni(s.Mo2InstancePath) : s.GameDataPath;
-            var resolved = Mo2Resolver.Resolve(s.Mo2InstancePath, s.Mo2Profile, game);
+            var layout = Mo2Layout.Locate(s.Mo2InstancePath) ?? throw new InvalidOperationException(Mo2Layout.NotFoundMessage);
+            log($"MO2 folders ({layout.Note}): profiles {layout.ProfilesDir}, mods {layout.ModsDir}, overwrite {layout.OverwriteDir}.");
+            var game = string.IsNullOrWhiteSpace(s.GameDataPath) ? layout.GamePath : s.GameDataPath;
+            if (string.IsNullOrWhiteSpace(game))
+                throw new InvalidOperationException("The game folder is not in ModOrganizer.ini (or there is no ini): fill in the Game folder box with your Skyrim Special Edition folder.");
+            var profileDir = layout.ProfileDirectory(s.Mo2Profile);
+            if (!Directory.Exists(profileDir)) throw new InvalidOperationException($"Profile '{s.Mo2Profile}' was not found in {layout.ProfilesDir}.");
+            var resolved = Mo2Resolver.ResolveFromFolders(profileDir, layout.ModsDir, layout.OverwriteDir, game);
             log($"Mod Organizer 2: resolved {resolved.LoadOrder.Count} active plugins ({resolved.MissingPlugins.Count} missing).");
             all = resolved.LoadOrder;
             asset = rel => resolved.ResolveDataFile(rel);
@@ -513,19 +519,5 @@ public static partial class HybridRunner
         }
         catch { /* not Windows, or no access: the user picks the folder */ }
         return null;
-    }
-
-    static string ReadGamePathFromIni(string instancePath)
-    {
-        var ini = Path.Combine(instancePath, "ModOrganizer.ini");
-        if (File.Exists(ini))
-            foreach (var line in File.ReadLines(ini))
-                if (line.StartsWith("gamePath=", StringComparison.OrdinalIgnoreCase))
-                {
-                    var v = line[9..].Trim().Trim('"');
-                    if (v.StartsWith("@ByteArray(")) v = v[11..^1];
-                    return v.Replace(@"\\", @"\");
-                }
-        return "";
     }
 }

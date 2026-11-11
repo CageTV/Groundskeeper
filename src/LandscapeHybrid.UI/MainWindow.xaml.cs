@@ -234,7 +234,7 @@ public partial class MainWindow : Window
         var mo2 = ModeDirect.IsChecked != true;
         var v = mo2 ? Visibility.Visible : Visibility.Collapsed;
         InstanceLabel.Visibility = InstanceBox.Visibility = InstanceBrowse.Visibility = v;
-        ProfileLabel.Visibility = ProfileCombo.Visibility = ProfileHint.Visibility = v;
+        ProfileLabel.Visibility = ProfileCombo.Visibility = ProfileHint.Visibility = InstanceStatus.Visibility = v;
         GameLabel.Text = mo2 ? "Game folder (optional):" : "Game folder (optional):";
     }
 
@@ -256,7 +256,7 @@ public partial class MainWindow : Window
             return;
         }
         var inst = InstanceBox.Text.Trim();
-        if (inst.Length == 0 || !File.Exists(Path.Combine(inst, "ModOrganizer.ini"))) return;
+        if (Mo2Layout.Locate(inst) is null) return;
         var def = Mo2InstanceFinder.DefaultOutputFolder(inst);
         var current = OutputBox.Text.Trim();
         if (current.Length == 0 || current.Equals(_lastDefaultOutput, StringComparison.OrdinalIgnoreCase)) OutputBox.Text = def;
@@ -267,11 +267,15 @@ public partial class MainWindow : Window
     {
         var want = keep ?? _savedProfile;
         ProfileCombo.Items.Clear();
-        var dir = Path.Combine(InstanceBox.Text.Trim(), "profiles");
-        if (!Directory.Exists(dir)) return;
-        foreach (var p in Directory.GetDirectories(dir).Select(Path.GetFileName).OfType<string>().OrderBy(n => n))
+        var layout = Mo2Layout.Locate(InstanceBox.Text.Trim());
+        InstanceStatus.Text = layout is null
+            ? (InstanceBox.Text.Trim().Length == 0 ? "" : "No MO2 instance found here.")
+            : $"Found: profiles in {layout.ProfilesDir}" + (layout.IniPath.Length > 0 ? "" : " (no ModOrganizer.ini: fill in the game folder)");
+        if (layout is null) return;
+        foreach (var p in layout.ProfileNames())
             ProfileCombo.Items.Add(p);
         if (want != null && ProfileCombo.Items.Contains(want)) ProfileCombo.SelectedItem = want;
+        else if (layout.SelectedProfile.Length > 0 && ProfileCombo.Items.Contains(layout.SelectedProfile) && string.IsNullOrEmpty(keep)) ProfileCombo.SelectedItem = layout.SelectedProfile;
         else if (ProfileCombo.Items.Count > 0) ProfileCombo.SelectedIndex = 0;
     }
 
@@ -281,7 +285,7 @@ public partial class MainWindow : Window
         return d.ShowDialog() == true ? d.FolderName : null;
     }
 
-    void BrowseInstance_Click(object s, RoutedEventArgs e) { if (PickFolder("MO2 instance folder (contains ModOrganizer.ini)") is { } p) InstanceBox.Text = p; }
+    void BrowseInstance_Click(object s, RoutedEventArgs e) { if (PickFolder("MO2 instance folder (holds ModOrganizer.ini) or your MO2 base folder (holds profiles and mods)") is { } p) InstanceBox.Text = p; }
     void BrowseGame_Click(object s, RoutedEventArgs e) { if (PickFolder("Skyrim install folder (or its Data folder)") is { } p) GameBox.Text = p; }
     void BrowseRoadMasks_Click(object s, RoutedEventArgs e) { if (PickFolder("ACMOS Road Generator roads folder (contains 'Roads' and 'Paths Only')") is { } p) RoadMasksBox.Text = p; }
 
@@ -521,7 +525,7 @@ public partial class MainWindow : Window
     {
         if (s.ModManager == ModManager.ModOrganizer2)
         {
-            if (!File.Exists(Path.Combine(s.Mo2InstancePath, "ModOrganizer.ini"))) return "Pick your MO2 instance folder (the one holding ModOrganizer.ini).";
+            if (Mo2Layout.Locate(s.Mo2InstancePath) is null) return Mo2Layout.NotFoundMessage;
             if (s.Mo2Profile == "") return "Pick an MO2 profile.";
         }
         if (needOutput && !s.OutputPluginName.EndsWith(".esp", StringComparison.OrdinalIgnoreCase)) return "The plugin name must end in .esp.";

@@ -77,7 +77,10 @@ Download the zip from the [releases page](https://github.com/CageTV/Groundskeepe
 first. Or build from source (see below).
 
 1. **Pick your mod manager.**
-   - **Mod Organizer 2:** pick the instance folder (the one with `ModOrganizer.ini`) and a profile.
+   - **Mod Organizer 2:** pick your instance folder and a profile. Either folder works: the one with
+     `ModOrganizer.ini`, or your MO2 base folder (the one with `profiles` and `mods`). Groundskeeper reads
+     `ModOrganizer.ini` (including a global instance's under `%LOCALAPPDATA%\ModOrganizer`) to find the profiles,
+     mods and overwrite folders and the game folder, even when they are in different places or moved.
      Started from MO2's executables list it finds the instance by itself.
    - **Vortex or a plain install:** it reads the game's `Data` folder and plugin list. Leave the
      game folder empty to find it from the registry, or pick it.

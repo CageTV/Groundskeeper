@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.2 (2026-11-11)
+
+- Fix: Mod Organizer 2 setups where `ModOrganizer.ini` is not in the same folder as `profiles` and `mods` (a global instance, or a custom base directory) no longer fail with "Pick your MO2 instance folder" or an empty profile list. Either folder can be entered; Groundskeeper reads the ini's `base_directory`, `mod_directory`, `profiles_directory` and `overwrite_directory` (so an overwrite folder or mods folder moved elsewhere is used too). With no ini found at all, a base folder with a `profiles` folder works if the game folder is filled in. The window shows which profiles folder it found.
+
 ## 0.1.1 (2026-11-10)
 
 - Fix: when one of the passes (seams, texture layers, roads, floating objects) needed more than 255 masters and was written as several staging plugins, only the first file reached the merge, so the cells in the others were lost. Every file a pass writes now goes into the merge, and the log says when a pass split.

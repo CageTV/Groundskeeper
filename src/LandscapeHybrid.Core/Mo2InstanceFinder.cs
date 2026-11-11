@@ -28,8 +28,8 @@ public static class Mo2InstanceFinder
     /// <summary>The default output mod folder for an instance: &lt;mods&gt;\Groundskeeper Output.</summary>
     public static string DefaultOutputFolder(string instancePath)
     {
-        var info = Read(System.IO.Path.Combine(instancePath, "ModOrganizer.ini"), System.IO.Path.GetFileName(instancePath.TrimEnd('\\', '/')), instancePath);
-        var mods = info?.ModsDirectory is { Length: > 0 } m ? m : System.IO.Path.Combine(instancePath, "mods");
+        var layout = Mo2Layout.Locate(instancePath);
+        var mods = layout?.ModsDir ?? System.IO.Path.Combine(instancePath, "mods");
         return System.IO.Path.Combine(mods, OutputModFolderName);
     }
 
